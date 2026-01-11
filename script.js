@@ -4,66 +4,11 @@ const ctx = canvas.getContext('2d');
 let drawing = false;
 let lastX = 0;
 let lastY = 0;
-
-function resizeCanvas() {
-  const tempCanvas = document.createElement('canvas');
-  const tempCtx = tempCanvas.getContext('2d');
-  tempCanvas.width = canvas.width;
-  tempCanvas.height = canvas.height;
-  tempCtx.drawImage(canvas, 0, 0);
-  
-  canvas.width = window.innerWidth - 70;
-  canvas.height = window.innerHeight;
-  
-  ctx.drawImage(tempCanvas, 0, 0);
-}
-
-resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
-
-function startDrawing(e) {
-  drawing = true;
-  lastX = e.offsetX;
-  lastY = e.offsetY;
-}
-
-function draw(e) {
-  if (!drawing) return;
-  
-  ctx.lineWidth = isEraser ? eraserThickness : penThickness;
-  ctx.lineCap = 'round';
-  
-  if (isEraser) {
-    ctx.globalCompositeOperation = 'destination-out';
-  } else {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.strokeStyle = penColor;
-  }
-  
-  ctx.beginPath();
-  ctx.moveTo(lastX, lastY);
-  ctx.lineTo(e.offsetX, e.offsetY);
-  ctx.stroke();
-  
-  lastX = e.offsetX;
-  lastY = e.offsetY;
-}
-
-function stopDrawing() {
-  if (drawing) {
-    drawing = false;
-  }
-}
-
-canvas.addEventListener('mousedown', startDrawing);
-canvas.addEventListener('mousemove', draw);
-canvas.addEventListener('mouseup', stopDrawing);
-canvas.addEventListener('mouseout', stopDrawing);
-
+let isEraser = false;
 let penColor = '#000000';
 let penThickness = 5;
 let eraserThickness = 20;
-let isEraser = false;
+let strokes = [];
 
 const penButton = document.getElementById('pen-button');
 const eraserButton = document.getElementById('eraser-button');
@@ -78,6 +23,15 @@ const eraserThicknessValue = document.getElementById('eraser-thickness-value');
 const eraserThicknessDot = document.getElementById('eraser-thickness-dot');
 const eraserThicknessPreview = document.querySelector('.eraser-thickness-preview');
 const eraserThicknessPopup = document.querySelector('.eraser-thickness-popup');
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth - 70;
+  canvas.height = window.innerHeight;
+  redrawCanvas();
+}
+
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
 
 function updateThicknessDot(size) {
   const scaledSize = Math.max(4, Math.min(size * 0.8, 18));
@@ -146,3 +100,101 @@ document.addEventListener('click', () => {
   thicknessPopup.classList.remove('show');
   eraserThicknessPopup.classList.remove('show');
 });
+
+function startDrawing(e) {
+  drawing = true;
+  lastX = e.offsetX;
+  lastY = e.offsetY;
+}
+
+function draw(e) {
+  if (!drawing) return;
+  
+  ctx.lineWidth = isEraser ? eraserThickness : penThickness;
+  ctx.lineCap = 'round';
+  
+  if (isEraser) {
+    ctx.globalCompositeOperation = 'destination-out';
+  } else {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = penColor;
+  }
+  
+  ctx.beginPath();
+  ctx.moveTo(lastX, lastY);
+  ctx.lineTo(e.offsetX, e.offsetY);
+  ctx.stroke();
+  
+  saveStroke(e.offsetX, e.offsetY, lastX, lastY);
+  
+  lastX = e.offsetX;
+  lastY = e.offsetY;
+}
+
+function stopDrawing() {
+  drawing = false;
+}
+
+canvas.addEventListener('mousedown', startDrawing);
+canvas.addEventListener('mousemove', draw);
+canvas.addEventListener('mouseup', stopDrawing);
+canvas.addEventListener('mouseout', stopDrawing);
+
+function saveStroke(x, y, lastX, lastY) {
+  const stroke = {
+    x: x,
+    y: y,
+    lastX: lastX,
+    lastY: lastY,
+    color: penColor,
+    thickness: isEraser ? eraserThickness : penThickness,
+    isEraser: isEraser
+  };
+  strokes.push(stroke);
+  saveToStorage();
+}
+
+function saveToStorage() {
+  try {
+    localStorage.setItem('sketchspace-strokes', JSON.stringify(strokes));
+  } catch (e) {
+    console.error('Storage error:', e);
+  }
+}
+
+function loadFromStorage() {
+  try {
+    const saved = localStorage.getItem('sketchspace-strokes');
+    if (saved) {
+      strokes = JSON.parse(saved);
+      redrawCanvas();
+    }
+  } catch (e) {
+    console.error('Load error:', e);
+  }
+}
+
+function redrawCanvas() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  strokes.forEach(stroke => {
+    ctx.lineWidth = stroke.thickness;
+    ctx.lineCap = 'round';
+    
+    if (stroke.isEraser) {
+      ctx.globalCompositeOperation = 'destination-out';
+    } else {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = stroke.color;
+    }
+    
+    ctx.beginPath();
+    ctx.moveTo(stroke.lastX, stroke.lastY);
+    ctx.lineTo(stroke.x, stroke.y);
+    ctx.stroke();
+  });
+  
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+loadFromStorage();

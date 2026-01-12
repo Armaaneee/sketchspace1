@@ -23,6 +23,10 @@ const eraserThicknessValue = document.getElementById('eraser-thickness-value');
 const eraserThicknessDot = document.getElementById('eraser-thickness-dot');
 const eraserThicknessPreview = document.querySelector('.eraser-thickness-preview');
 const eraserThicknessPopup = document.querySelector('.eraser-thickness-popup');
+const clearButton = document.getElementById('clear-button');
+const infoButton = document.getElementById('info-button');
+const infoModal = document.getElementById('info-modal');
+const closeButton = document.querySelector('.close-button');
 
 function resizeCanvas() {
   canvas.width = window.innerWidth - 70;
@@ -101,10 +105,56 @@ document.addEventListener('click', () => {
   eraserThicknessPopup.classList.remove('show');
 });
 
+clearButton.addEventListener('click', () => {
+  if (confirm('Are you sure you want to clear the entire canvas?')) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    strokes = [];
+    saveToStorage();
+  }
+});
+
+infoButton.addEventListener('click', () => {
+  infoModal.style.display = 'flex';
+});
+
+closeButton.addEventListener('click', () => {
+  infoModal.style.display = 'none';
+});
+
+window.addEventListener('click', (e) => {
+  if (e.target === infoModal) {
+    infoModal.style.display = 'none';
+  }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'p' || e.key === 'P') {
+    penButton.click();
+  } else if (e.key === 'e' || e.key === 'E') {
+    eraserButton.click();
+  } else if (e.key === 'c' || e.key === 'C') {
+    clearButton.click();
+  }
+});
+
 function startDrawing(e) {
   drawing = true;
   lastX = e.offsetX;
   lastY = e.offsetY;
+  
+  ctx.lineWidth = isEraser ? eraserThickness : penThickness;
+  ctx.lineCap = 'round';
+  
+  if (isEraser) {
+    ctx.globalCompositeOperation = 'destination-out';
+  } else {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = penColor;
+  }
+  
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 0.1, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function draw(e) {
@@ -196,5 +246,52 @@ function redrawCanvas() {
   
   ctx.globalCompositeOperation = 'source-over';
 }
+
+function getTouchPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: e.touches[0].clientX - rect.left,
+    y: e.touches[0].clientY - rect.top
+  };
+}
+
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const pos = getTouchPos(e);
+  drawing = true;
+  lastX = pos.x;
+  lastY = pos.y;
+});
+
+canvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  if (!drawing) return;
+  
+  const pos = getTouchPos(e);
+  
+  ctx.lineWidth = isEraser ? eraserThickness : penThickness;
+  ctx.lineCap = 'round';
+  
+  if (isEraser) {
+    ctx.globalCompositeOperation = 'destination-out';
+  } else {
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = penColor;
+  }
+  
+  ctx.beginPath();
+  ctx.moveTo(lastX, lastY);
+  ctx.lineTo(pos.x, pos.y);
+  ctx.stroke();
+  
+  saveStroke(pos.x, pos.y, lastX, lastY);
+  
+  lastX = pos.x;
+  lastY = pos.y;
+});
+
+canvas.addEventListener('touchend', () => {
+  drawing = false;
+});
 
 loadFromStorage();

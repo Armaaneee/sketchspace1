@@ -16,6 +16,13 @@ let shapeStartX = 0;
 let shapeStartY = 0;
 let isDrawingShape = false;
 let tempCanvas = null;
+let scale = 1;
+let panX = 0;
+let panY = 0;
+let isPanning = false;
+let panStartX = 0;
+let panStartY = 0;
+let spacePressed = false;
 
 const penButton = document.getElementById('pen-button');
 const eraserButton = document.getElementById('eraser-button');
@@ -47,6 +54,7 @@ const textInput = document.getElementById('text-input');
 const clearButton = document.getElementById('clear-button');
 const undoButton = document.getElementById('undo-button');
 const redoButton = document.getElementById('redo-button');
+const exportButton = document.getElementById('export-button');
 const infoButton = document.getElementById('info-button');
 const infoModal = document.getElementById('info-modal');
 const closeButton = document.querySelector('.close-button');
@@ -54,7 +62,7 @@ const closeButton = document.querySelector('.close-button');
 function resizeCanvas() {
   canvas.width = window.innerWidth - 70;
   canvas.height = window.innerHeight;
-  redrawCanvas();
+  applyTransform();
 }
 
 resizeCanvas();
@@ -204,11 +212,16 @@ document.addEventListener('click', () => {
 
 clearButton.addEventListener('click', () => {
   if (confirm('Are you sure you want to clear the entire canvas?')) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     strokes = [];
     redoStack = [];
     tempCanvas = null;
+    scale = 1;
+    panX = 0;
+    panY = 0;
     saveToStorage();
+    applyTransform();
   }
 });
 
@@ -218,6 +231,103 @@ undoButton.addEventListener('click', () => {
 
 redoButton.addEventListener('click', () => {
   redo();
+});
+
+exportButton.addEventListener('click', () => {
+  const exportCanvas = document.createElement('canvas');
+  exportCanvas.width = canvas.width;
+  exportCanvas.height = canvas.height;
+  const exportCtx = exportCanvas.getContext('2d');
+  
+  exportCtx.fillStyle = '#ffffff';
+  exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+  
+  exportCtx.save();
+  exportCtx.setTransform(scale, 0, 0, scale, panX, panY);
+  
+  strokes.forEach(stroke => {
+    if (stroke.type === 'line') {
+      exportCtx.globalCompositeOperation = 'source-over';
+      exportCtx.strokeStyle = stroke.color;
+      exportCtx.lineWidth = Math.max(3, stroke.thickness);
+      exportCtx.lineCap = 'round';
+      exportCtx.lineJoin = 'round';
+      exportCtx.beginPath();
+      exportCtx.moveTo(stroke.startX, stroke.startY);
+      exportCtx.lineTo(stroke.endX, stroke.endY);
+      exportCtx.stroke();
+    } else if (stroke.type === 'rectangle') {
+      exportCtx.globalCompositeOperation = 'source-over';
+      exportCtx.strokeStyle = stroke.color;
+      exportCtx.lineWidth = Math.max(3, stroke.thickness);
+      exportCtx.lineCap = 'round';
+      exportCtx.lineJoin = 'round';
+      exportCtx.beginPath();
+      exportCtx.rect(stroke.startX, stroke.startY, stroke.endX - stroke.startX, stroke.endY - stroke.startY);
+      exportCtx.stroke();
+    } else if (stroke.type === 'circle') {
+      exportCtx.globalCompositeOperation = 'source-over';
+      exportCtx.strokeStyle = stroke.color;
+      exportCtx.lineWidth = Math.max(3, stroke.thickness);
+      exportCtx.lineCap = 'round';
+      exportCtx.lineJoin = 'round';
+      const radius = Math.sqrt(Math.pow(stroke.endX - stroke.startX, 2) + Math.pow(stroke.endY - stroke.startY, 2));
+      exportCtx.beginPath();
+      exportCtx.arc(stroke.startX, stroke.startY, radius, 0, 2 * Math.PI);
+      exportCtx.stroke();
+    } else if (stroke.type === 'arrow') {
+      exportCtx.globalCompositeOperation = 'source-over';
+      exportCtx.strokeStyle = stroke.color;
+      exportCtx.lineWidth = Math.max(3, stroke.thickness);
+      exportCtx.lineCap = 'round';
+      exportCtx.lineJoin = 'round';
+      const headLength = 15;
+      const angle = Math.atan2(stroke.endY - stroke.startY, stroke.endX - stroke.startX);
+      exportCtx.beginPath();
+      exportCtx.moveTo(stroke.startX, stroke.startY);
+      exportCtx.lineTo(stroke.endX, stroke.endY);
+      exportCtx.stroke();
+      exportCtx.beginPath();
+      exportCtx.moveTo(stroke.endX, stroke.endY);
+      exportCtx.lineTo(stroke.endX - headLength * Math.cos(angle - Math.PI / 6), stroke.endY - headLength * Math.sin(angle - Math.PI / 6));
+      exportCtx.moveTo(stroke.endX, stroke.endY);
+      exportCtx.lineTo(stroke.endX - headLength * Math.cos(angle + Math.PI / 6), stroke.endY - headLength * Math.sin(angle + Math.PI / 6));
+      exportCtx.stroke();
+    } else if (stroke.type === 'text') {
+      exportCtx.globalCompositeOperation = 'source-over';
+      exportCtx.fillStyle = stroke.color;
+      exportCtx.font = `${stroke.size}px Arial`;
+      exportCtx.fillText(stroke.text, stroke.x, stroke.y);
+    } else if (stroke.type !== 'fill') {
+      exportCtx.lineWidth = stroke.thickness;
+      exportCtx.lineCap = 'round';
+      
+      if (stroke.isEraser) {
+        exportCtx.globalCompositeOperation = 'destination-out';
+      } else {
+        exportCtx.globalCompositeOperation = 'source-over';
+        exportCtx.strokeStyle = stroke.color;
+      }
+      
+      exportCtx.beginPath();
+      exportCtx.moveTo(stroke.lastX, stroke.lastY);
+      exportCtx.lineTo(stroke.x, stroke.y);
+      exportCtx.stroke();
+    }
+  });
+  
+  exportCtx.restore();
+  
+  exportCanvas.toBlob((blob) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `sketchspace-${Date.now()}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
 });
 
 function undo() {
@@ -257,6 +367,13 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   
+  if (e.code === 'Space' && !spacePressed) {
+    e.preventDefault();
+    spacePressed = true;
+    canvas.style.cursor = 'grab';
+    return;
+  }
+  
   if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
     e.preventDefault();
     undo();
@@ -284,6 +401,39 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') {
+    spacePressed = false;
+    if (!isPanning) {
+      canvas.style.cursor = 'crosshair';
+    }
+  }
+});
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  
+  const mouseX = e.offsetX;
+  const mouseY = e.offsetY;
+  
+  const worldX = (mouseX - panX) / scale;
+  const worldY = (mouseY - panY) / scale;
+  
+  const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+  const newScale = Math.max(0.1, Math.min(5, scale * zoomFactor));
+  
+  scale = newScale;
+  
+  panX = mouseX - worldX * scale;
+  panY = mouseY - worldY * scale;
+  
+  applyTransform();
+}, { passive: false });
+
+function applyTransform() {
+  redrawCanvas();
+}
+
 let textClickX = 0;
 let textClickY = 0;
 
@@ -292,8 +442,11 @@ function handleTextInput(x, y) {
   textClickY = y;
   
   const canvasRect = canvas.getBoundingClientRect();
-  textInputOverlay.style.left = (canvasRect.left + x) + 'px';
-  textInputOverlay.style.top = (canvasRect.top + y) + 'px';
+  const screenX = x * scale + panX;
+  const screenY = y * scale + panY;
+  
+  textInputOverlay.style.left = (canvasRect.left + screenX) + 'px';
+  textInputOverlay.style.top = (canvasRect.top + screenY) + 'px';
   textInputOverlay.style.display = 'block';
   textInput.style.fontSize = textSize + 'px';
   textInput.style.color = penColor;
@@ -402,8 +555,16 @@ function floodFill(startX, startY, fillColor) {
 }
 
 function startDrawing(e) {
-  const x = e.offsetX;
-  const y = e.offsetY;
+  if (spacePressed) {
+    isPanning = true;
+    panStartX = e.clientX - panX;
+    panStartY = e.clientY - panY;
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
+  
+  const x = (e.offsetX - panX) / scale;
+  const y = (e.offsetY - panY) / scale;
   
   if (currentTool === 'text') {
     handleTextInput(x, y);
@@ -411,7 +572,7 @@ function startDrawing(e) {
   }
   
   if (currentTool === 'fill') {
-    floodFill(x, y, penColor);
+    floodFill(Math.floor(e.offsetX), Math.floor(e.offsetY), penColor);
     return;
   }
   
@@ -437,20 +598,21 @@ function startDrawing(e) {
     isDrawingShape = true;
     shapeStartX = x;
     shapeStartY = y;
-    
-    if (!tempCanvas) {
-      tempCanvas = document.createElement('canvas');
-    }
-    tempCanvas.width = canvas.width;
-    tempCanvas.height = canvas.height;
-    const tctx = tempCanvas.getContext('2d');
-    tctx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-    tctx.drawImage(canvas, 0, 0);
   }
 }
 
 function draw(e) {
+  if (isPanning) {
+    panX = e.clientX - panStartX;
+    panY = e.clientY - panStartY;
+    applyTransform();
+    return;
+  }
+  
   if (!drawing) return;
+  
+  const x = (e.offsetX - panX) / scale;
+  const y = (e.offsetY - panY) / scale;
   
   if (currentTool === 'pen' || currentTool === 'eraser') {
     ctx.lineWidth = isEraser ? eraserThickness : penThickness;
@@ -465,16 +627,15 @@ function draw(e) {
     
     ctx.beginPath();
     ctx.moveTo(lastX, lastY);
-    ctx.lineTo(e.offsetX, e.offsetY);
+    ctx.lineTo(x, y);
     ctx.stroke();
     
-    saveStroke(e.offsetX, e.offsetY, lastX, lastY);
+    saveStroke(x, y, lastX, lastY);
     
-    lastX = e.offsetX;
-    lastY = e.offsetY;
+    lastX = x;
+    lastY = y;
   } else if (isDrawingShape) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(tempCanvas, 0, 0);
+    redrawCanvas();
     
     ctx.globalCompositeOperation = 'source-over';
     ctx.strokeStyle = penColor;
@@ -483,27 +644,36 @@ function draw(e) {
     ctx.lineJoin = 'round';
     
     if (currentTool === 'line') {
-      drawLine(shapeStartX, shapeStartY, e.offsetX, e.offsetY);
+      drawLine(shapeStartX, shapeStartY, x, y);
     } else if (currentTool === 'rectangle') {
-      drawRectangle(shapeStartX, shapeStartY, e.offsetX, e.offsetY);
+      drawRectangle(shapeStartX, shapeStartY, x, y);
     } else if (currentTool === 'circle') {
-      drawCircle(shapeStartX, shapeStartY, e.offsetX, e.offsetY);
+      drawCircle(shapeStartX, shapeStartY, x, y);
     } else if (currentTool === 'arrow') {
-      drawArrow(shapeStartX, shapeStartY, e.offsetX, e.offsetY);
+      drawArrow(shapeStartX, shapeStartY, x, y);
     }
   }
 }
 
 function stopDrawing(e) {
+  if (isPanning) {
+    isPanning = false;
+    canvas.style.cursor = spacePressed ? 'grab' : 'crosshair';
+    return;
+  }
+  
   if (!drawing) return;
   
   if (isDrawingShape) {
+    const x = (e.offsetX - panX) / scale;
+    const y = (e.offsetY - panY) / scale;
+    
     const shape = {
       type: currentTool,
       startX: shapeStartX,
       startY: shapeStartY,
-      endX: e.offsetX,
-      endY: e.offsetY,
+      endX: x,
+      endY: y,
       color: penColor,
       thickness: penThickness
     };
@@ -606,7 +776,10 @@ function loadFromStorage() {
 }
 
 function redrawCanvas() {
+  // Clear in screen space so old frames don't stick around when zooming/panning
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.setTransform(scale, 0, 0, scale, panX, panY);
   
   strokes.forEach(stroke => {
     if (stroke.type === 'line') {

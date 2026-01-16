@@ -77,6 +77,30 @@
                 </button>
             </div>
 
+            <button class="tool-button" id="layers-button">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 3L2 8l10 5 10-5-10-5zm0 12L2 10v6l10 5 10-5v-6l-10 5z"/>
+                </svg>
+            </button>
+
+            <div class="layers-popup" id="layers-popup">
+                <div class="popup-title">Layers</div>
+                <div class="popup-list" id="layers-list"></div>
+                <button class="popup-action" id="add-layer-button">Add Layer</button>
+            </div>
+
+            <button class="tool-button" id="pages-button">
+                <svg viewBox="0 0 24 24">
+                    <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm4 4H8c-1.1 0-2 .9-2 2v16h14c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 18H8V7h12v16z"/>
+                </svg>
+            </button>
+
+            <div class="pages-popup" id="pages-popup">
+                <div class="popup-title">Canvases</div>
+                <div class="popup-list" id="pages-list"></div>
+                <button class="popup-action" id="add-page-button">New Canvas</button>
+            </div>
+
             <div class="color-picker-wrapper">
                 <input type="color" id="color-picker" value="#000000"/>
             </div>

@@ -75,9 +75,61 @@ const pagesPopup = document.getElementById('pages-popup');
 const pagesList = document.getElementById('pages-list');
 const addPageButton = document.getElementById('add-page-button');
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function hideAllPopups() {
+  thicknessPopup.classList.remove('show');
+  eraserThicknessPopup.classList.remove('show');
+  textSizePopup.classList.remove('show');
+  shapesPopup.classList.remove('show');
+  layersPopup.classList.remove('show');
+  pagesPopup.classList.remove('show');
+}
+
+function positionPopup(triggerEl, popupEl) {
+  if (!popupEl.classList.contains('show')) return;
+
+  const triggerRect = triggerEl.getBoundingClientRect();
+  const popupRect = popupEl.getBoundingClientRect();
+  const padding = 12;
+  const gap = 10;
+
+  let left = triggerRect.right + gap;
+  if (left + popupRect.width > window.innerWidth - padding) {
+    left = triggerRect.left - popupRect.width - gap;
+  }
+  left = clamp(left, padding, window.innerWidth - popupRect.width - padding);
+
+  const top = clamp(
+    triggerRect.top + triggerRect.height / 2 - popupRect.height / 2,
+    padding,
+    window.innerHeight - popupRect.height - padding
+  );
+
+  popupEl.style.left = left + 'px';
+  popupEl.style.top = top + 'px';
+}
+
+function togglePopup(triggerEl, popupEl) {
+  const willShow = !popupEl.classList.contains('show');
+  hideAllPopups();
+  if (!willShow) return;
+  popupEl.classList.add('show');
+  requestAnimationFrame(() => positionPopup(triggerEl, popupEl));
+}
+
 function resizeCanvas() {
-  canvas.width = window.innerWidth - 70;
-  canvas.height = window.innerHeight;
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.floor(rect.width));
+  const h = Math.max(1, Math.floor(rect.height));
+  if (canvas.width === w && canvas.height === h) {
+    return;
+  }
+
+  canvas.width = w;
+  canvas.height = h;
   layerCanvases = {};
   if (layers.length) {
     rebuildAllLayers();
@@ -85,8 +137,16 @@ function resizeCanvas() {
   applyTransform();
 }
 
-resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
+function requestCanvasResize() {
+  requestAnimationFrame(resizeCanvas);
+}
+
+requestCanvasResize();
+requestAnimationFrame(requestCanvasResize);
+window.addEventListener('resize', requestCanvasResize);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', requestCanvasResize);
+}
 
 function updateThicknessDot(size) {
   const scaledSize = Math.max(4, Math.min(size * 0.8, 18));
@@ -501,10 +561,7 @@ fillButton.addEventListener('click', () => setActiveTool('fill'));
 
 shapesButton.addEventListener('click', (e) => {
   e.stopPropagation();
-  shapesPopup.classList.toggle('show');
-  thicknessPopup.classList.remove('show');
-  eraserThicknessPopup.classList.remove('show');
-  textSizePopup.classList.remove('show');
+  togglePopup(shapesButton, shapesPopup);
 });
 
 shapeLineButton.addEventListener('click', (e) => {
@@ -554,53 +611,28 @@ textSizeSlider.addEventListener('input', (e) => {
 
 thicknessPreview.addEventListener('click', (e) => {
   e.stopPropagation();
-  thicknessPopup.classList.toggle('show');
-  eraserThicknessPopup.classList.remove('show');
-  textSizePopup.classList.remove('show');
-  shapesPopup.classList.remove('show');
-  layersPopup.classList.remove('show');
-  pagesPopup.classList.remove('show');
+  togglePopup(thicknessPreview, thicknessPopup);
 });
 
 eraserThicknessPreview.addEventListener('click', (e) => {
   e.stopPropagation();
-  eraserThicknessPopup.classList.toggle('show');
-  thicknessPopup.classList.remove('show');
-  textSizePopup.classList.remove('show');
-  shapesPopup.classList.remove('show');
-  layersPopup.classList.remove('show');
-  pagesPopup.classList.remove('show');
+  togglePopup(eraserThicknessPreview, eraserThicknessPopup);
 });
 
 textSizePreview.addEventListener('click', (e) => {
   e.stopPropagation();
-  textSizePopup.classList.toggle('show');
-  thicknessPopup.classList.remove('show');
-  eraserThicknessPopup.classList.remove('show');
-  shapesPopup.classList.remove('show');
-  layersPopup.classList.remove('show');
-  pagesPopup.classList.remove('show');
+  togglePopup(textSizePreview, textSizePopup);
 });
 
 layersButton.addEventListener('click', (e) => {
   e.stopPropagation();
-  layersPopup.classList.toggle('show');
-  thicknessPopup.classList.remove('show');
-  eraserThicknessPopup.classList.remove('show');
-  textSizePopup.classList.remove('show');
-  shapesPopup.classList.remove('show');
-  pagesPopup.classList.remove('show');
+  togglePopup(layersButton, layersPopup);
   renderLayers();
 });
 
 pagesButton.addEventListener('click', (e) => {
   e.stopPropagation();
-  pagesPopup.classList.toggle('show');
-  thicknessPopup.classList.remove('show');
-  eraserThicknessPopup.classList.remove('show');
-  textSizePopup.classList.remove('show');
-  shapesPopup.classList.remove('show');
-  layersPopup.classList.remove('show');
+  togglePopup(pagesButton, pagesPopup);
   renderPages();
 });
 
@@ -629,13 +661,24 @@ pagesPopup.addEventListener('click', (e) => {
 });
 
 document.addEventListener('click', () => {
-  thicknessPopup.classList.remove('show');
-  eraserThicknessPopup.classList.remove('show');
-  textSizePopup.classList.remove('show');
-  shapesPopup.classList.remove('show');
-  layersPopup.classList.remove('show');
-  pagesPopup.classList.remove('show');
+  hideAllPopups();
 });
+
+window.addEventListener('resize', () => {
+  positionPopup(thicknessPreview, thicknessPopup);
+  positionPopup(eraserThicknessPreview, eraserThicknessPopup);
+  positionPopup(textSizePreview, textSizePopup);
+  positionPopup(shapesButton, shapesPopup);
+  positionPopup(layersButton, layersPopup);
+  positionPopup(pagesButton, pagesPopup);
+});
+
+const sidebarScroll = document.getElementById('sidebar-scroll');
+if (sidebarScroll) {
+  sidebarScroll.addEventListener('scroll', () => {
+    hideAllPopups();
+  }, { passive: true });
+}
 
 addLayerButton.addEventListener('click', () => {
   const name = 'Layer ' + (layers.length + 1);

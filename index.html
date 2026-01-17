@@ -19,9 +19,11 @@
             </div>
         </div>
 
+        <div id="sidebar-scroll">
+
         <div class="tools-section">
             <div class="section-title">Tools</div>
-                <button class="tool-button active" id="pen-button">
+                <button class="tool-button active" id="pen-button" title="Pen">
                     <svg viewBox="0 0 24 24">
                         <path
                             d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
@@ -29,25 +31,25 @@
                     </svg>
                 </button>
 
-            <button class="tool-button" id="eraser-button">
+            <button class="tool-button" id="eraser-button" title="Eraser">
                 <svg viewBox="0 0 24 24">
                     <path d="M15.14 3c-.51 0-1.02.2-1.41.59L2.59 14.73c-.78.77-.78 2.04 0 2.83L5.03 20h7.66l8.72-8.72c.78-.78.78-2.05 0-2.83l-4.85-4.86c-.39-.39-.9-.59-1.42-.59M7.5 18c-.83 0-1.5-.67-1.5-1.5S6.67 15 7.5 15s1.5.67 1.5 1.5S8.33 18 7.5 18m8.99-10.38L13.12 11l-3.5-3.5 2.38-2.38 4.5 4.5"/>
                 </svg>
             </button>
 
-            <button class="tool-button" id="text-button">
+            <button class="tool-button" id="text-button" title="Text">
                 <svg viewBox="0 0 24 24">
                     <path d="M5 4v3h5.5v12h3V7H19V4z"/>
                 </svg>
             </button>
 
-            <button class="tool-button" id="fill-button">
+            <button class="tool-button" id="fill-button" title="Fill">
                 <svg viewBox="0 0 24 24">
                     <path d="M19 11h-8v6h8v-6zm4 8h-2v2h-2v-2H5v-2h2v-2H5v-2h2v-2H5V9h2V7H5V5h14v2h2v2h2v2h-2v2h2v2h-2v2h2v4zm-4-4v-2h-8v2h8z"/>
                 </svg>
             </button>
 
-            <button class="tool-button" id="shapes-button">
+            <button class="tool-button" id="shapes-button" title="Shapes">
                 <svg viewBox="0 0 24 24">
                     <path d="M3 5v14h18V5H3z"/>
                 </svg>
@@ -55,29 +57,29 @@
 
             <div class="shapes-popup" id="shapes-popup">
                 <div class="popup-title">Shapes</div>
-                <button class="tool-button" id="shape-line">
+                <button class="tool-button" id="shape-line" title="Line">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2">
                         <path d="M3 3L21 21"/>
                     </svg>
                 </button>
-                <button class="tool-button" id="shape-rectangle">
+                <button class="tool-button" id="shape-rectangle" title="Rectangle">
                     <svg viewBox="0 0 24 24">
                         <path d="M3 5v14h18V5H3z"/>
                     </svg>
                 </button>
-                <button class="tool-button" id="shape-circle">
+                <button class="tool-button" id="shape-circle" title="Circle">
                     <svg viewBox="0 0 24 24">
                         <circle cx="12" cy="12" r="8"/>
                     </svg>
                 </button>
-                <button class="tool-button" id="shape-arrow">
+                <button class="tool-button" id="shape-arrow" title="Arrow">
                     <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M4 12h16m-7-7l7 7-7 7"/>
                     </svg>
                 </button>
             </div>
 
-            <button class="tool-button" id="layers-button">
+            <button class="tool-button" id="layers-button" title="Layers">
                 <svg viewBox="0 0 24 24">
                     <path d="M12 3L2 8l10 5 10-5-10-5zm0 12L2 10v6l10 5 10-5v-6l-10 5z"/>
                 </svg>
@@ -89,7 +91,7 @@
                 <button class="popup-action" id="add-layer-button">Add Layer</button>
             </div>
 
-            <button class="tool-button" id="pages-button">
+            <button class="tool-button" id="pages-button" title="Canvases">
                 <svg viewBox="0 0 24 24">
                     <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm4 4H8c-1.1 0-2 .9-2 2v16h14c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 18H8V7h12v16z"/>
                 </svg>
@@ -102,7 +104,7 @@
             </div>
 
             <div class="color-picker-wrapper">
-                <input type="color" id="color-picker" value="#000000"/>
+                <input type="color" id="color-picker" value="#000000" title="Color"/>
             </div>
 
             <div class="thickness-container">
@@ -145,25 +147,25 @@
         <div class="tools-section">
             <div class="section-title">Actions</div>
 
-            <button class="tool-button" id="undo-button">
+            <button class="tool-button" id="undo-button" title="Undo">
                 <svg viewBox="0 0 24 24">
                     <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
                 </svg>
             </button>
 
-            <button class="tool-button" id="redo-button">
+            <button class="tool-button" id="redo-button" title="Redo">
                 <svg viewBox="0 0 24 24">
                     <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
                 </svg>
             </button>
 
-            <button class="tool-button" id="export-button">
+            <button class="tool-button" id="export-button" title="Export">
                 <svg viewBox="0 0 24 24">
                     <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z"/>
                 </svg>
             </button>
 
-            <button class="tool-button" id="clear-button">
+            <button class="tool-button" id="clear-button" title="Clear">
                 <svg viewBox="0 0 24 24">
                     <path d="M19 4h-3.5l-1-1h-5l-1 1H5v2h14M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12z"/>
                 </svg>
@@ -173,11 +175,13 @@
         <div class="tools-section">
             <div class="section-title">Help</div>
 
-            <button class="tool-button" id="info-button">
+            <button class="tool-button" id="info-button" title="Info">
                 <svg viewBox="0 0 24 24">
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>
                 </svg>
             </button>
+        </div>
+
         </div>
     </div>
 

@@ -30,7 +30,23 @@ let pages = [];
 let currentPageIndex = 0;
 let layerCanvases = {};
 
+// Selection + clipboard
+let isSelecting = false;
+let selectionStartX = 0;
+let selectionStartY = 0;
+let selectionEndX = 0;
+let selectionEndY = 0;
+let selectedStrokeIds = new Set();
+let selectionClipboard = null;
+let pasteCount = 0;
+
+let isDraggingSelection = false;
+let dragLastX = 0;
+let dragLastY = 0;
+let dragOriginals = new Map();
+
 const penButton = document.getElementById('pen-button');
+const selectButton = document.getElementById('select-button');
 const eraserButton = document.getElementById('eraser-button');
 const textButton = document.getElementById('text-button');
 const fillButton = document.getElementById('fill-button');
@@ -77,6 +93,291 @@ const addPageButton = document.getElementById('add-page-button');
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function generateId(prefix) {
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+}
+
+function ensureStrokeId(stroke) {
+  if (!stroke.id) stroke.id = generateId('stroke');
+  return stroke.id;
+}
+
+function deepClone(value) {
+  if (typeof structuredClone === 'function') return structuredClone(value);
+  return JSON.parse(JSON.stringify(value));
+}
+
+function normalizeRect(x1, y1, x2, y2) {
+  return {
+    minX: Math.min(x1, x2),
+    minY: Math.min(y1, y2),
+    maxX: Math.max(x1, x2),
+    maxY: Math.max(y1, y2)
+  };
+}
+
+function rectIntersects(a, b) {
+  return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+}
+
+function rectContainsPoint(rect, x, y) {
+  return x >= rect.minX && x <= rect.maxX && y >= rect.minY && y <= rect.maxY;
+}
+
+function expandRect(rect, padding) {
+  return {
+    minX: rect.minX - padding,
+    minY: rect.minY - padding,
+    maxX: rect.maxX + padding,
+    maxY: rect.maxY + padding
+  };
+}
+
+function getStrokeBounds(stroke) {
+  // Fill strokes are context-sensitive; do not include in selection.
+  if (!stroke || stroke.type === 'fill') return null;
+
+  if (stroke.type === 'moveAction') return null;
+
+  if (stroke.type === 'deleteAction') return null;
+
+  if (stroke.type === 'line' || stroke.type === 'rectangle' || stroke.type === 'circle' || stroke.type === 'arrow') {
+    if (stroke.type === 'circle') {
+      const r = Math.sqrt(Math.pow(stroke.endX - stroke.startX, 2) + Math.pow(stroke.endY - stroke.startY, 2));
+      const circleRect = {
+        minX: stroke.startX - r,
+        minY: stroke.startY - r,
+        maxX: stroke.startX + r,
+        maxY: stroke.startY + r
+      };
+      return expandRect(circleRect, Math.max(2, (stroke.thickness || 3) / 2));
+    }
+
+    const base = normalizeRect(stroke.startX, stroke.startY, stroke.endX, stroke.endY);
+    return expandRect(base, Math.max(2, (stroke.thickness || 3) / 2));
+  }
+
+  if (stroke.type === 'text') {
+    ctx.save();
+    ctx.font = `${stroke.size || 24}px Arial`;
+    const width = ctx.measureText(stroke.text || '').width || 0;
+    ctx.restore();
+
+    const size = stroke.size || 24;
+    const rect = {
+      minX: stroke.x,
+      minY: stroke.y - size,
+      maxX: stroke.x + width,
+      maxY: stroke.y
+    };
+    return expandRect(rect, 2);
+  }
+
+  if (
+    typeof stroke.x === 'number' &&
+    typeof stroke.y === 'number' &&
+    typeof stroke.lastX === 'number' &&
+    typeof stroke.lastY === 'number'
+  ) {
+    const base = normalizeRect(stroke.x, stroke.y, stroke.lastX, stroke.lastY);
+    return expandRect(base, Math.max(2, (stroke.thickness || 3) / 2));
+  }
+
+  return null;
+}
+
+function getSelectionBounds() {
+  const selected = strokes.filter(s => selectedStrokeIds.has(s.id));
+  let bounds = null;
+  for (const s of selected) {
+    const b = getStrokeBounds(s);
+    if (!b) continue;
+    if (!bounds) {
+      bounds = { ...b };
+    } else {
+      bounds.minX = Math.min(bounds.minX, b.minX);
+      bounds.minY = Math.min(bounds.minY, b.minY);
+      bounds.maxX = Math.max(bounds.maxX, b.maxX);
+      bounds.maxY = Math.max(bounds.maxY, b.maxY);
+    }
+  }
+  return bounds;
+}
+
+function drawSelectionOverlay() {
+  const hasMarquee = isSelecting;
+  const hasSelection = selectedStrokeIds.size > 0;
+  if (!hasMarquee && !hasSelection) return;
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.strokeStyle = '#4d90fe';
+  ctx.lineWidth = 1 / Math.max(0.001, scale);
+
+  if (hasSelection) {
+    const b = getSelectionBounds();
+    if (b) {
+      ctx.setLineDash([6 / scale, 4 / scale]);
+      ctx.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
+      ctx.setLineDash([]);
+    }
+  }
+
+  if (hasMarquee) {
+    const r = normalizeRect(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
+    ctx.setLineDash([4 / scale, 3 / scale]);
+    ctx.strokeRect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY);
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+}
+
+function copySelectionToClipboard() {
+  const selected = strokes
+    .filter(s => selectedStrokeIds.has(s.id))
+    .filter(s => s.type !== 'fill' && s.type !== 'moveAction');
+
+  // If nothing is actually selected, clear clipboard so paste doesn't keep using stale data.
+  if (!selected.length) {
+    selectionClipboard = null;
+    pasteCount = 0;
+    return;
+  }
+
+  selectionClipboard = {
+    strokes: selected.map(s => deepClone(s)),
+    bounds: getSelectionBounds()
+  };
+  pasteCount = 0;
+}
+
+function translateStroke(stroke, dx, dy) {
+  if (!stroke) return;
+
+  if (stroke.type === 'line' || stroke.type === 'rectangle' || stroke.type === 'circle' || stroke.type === 'arrow') {
+    stroke.startX += dx;
+    stroke.startY += dy;
+    stroke.endX += dx;
+    stroke.endY += dy;
+    return;
+  }
+
+  if (stroke.type === 'text') {
+    stroke.x += dx;
+    stroke.y += dy;
+    return;
+  }
+
+  if (typeof stroke.x === 'number') stroke.x += dx;
+  if (typeof stroke.y === 'number') stroke.y += dy;
+  if (typeof stroke.lastX === 'number') stroke.lastX += dx;
+  if (typeof stroke.lastY === 'number') stroke.lastY += dy;
+}
+
+function pasteSelectionFromClipboard() {
+  if (!selectionClipboard || !selectionClipboard.strokes || !selectionClipboard.strokes.length) return;
+
+  pasteCount += 1;
+  const offset = 20 * pasteCount;
+
+  const validLayerIds = new Set(layers.map(l => l.id));
+  const pasted = selectionClipboard.strokes.map(s => {
+    const clone = deepClone(s);
+    clone.id = generateId('stroke');
+    if (!clone.layerId || !validLayerIds.has(clone.layerId)) clone.layerId = currentLayerId;
+    translateStroke(clone, offset, offset);
+    return clone;
+  });
+
+  strokes.push(...pasted);
+  redoStack = [];
+  selectedStrokeIds = new Set(pasted.map(s => s.id));
+
+  setActiveTool('select');
+  rebuildAllLayers();
+  redrawCanvas();
+  saveToStorage();
+}
+
+function deleteSelectedStrokes() {
+  if (!selectedStrokeIds.size) return;
+
+  const selectedIds = new Set(selectedStrokeIds);
+  const removed = [];
+
+  for (let i = 0; i < strokes.length; i++) {
+    const s = strokes[i];
+    if (!s || !s.id) continue;
+    if (s.type === 'moveAction' || s.type === 'deleteAction') continue;
+    if (selectedIds.has(s.id)) {
+      removed.push({ index: i, stroke: deepClone(s) });
+    }
+  }
+
+  if (!removed.length) {
+    selectedStrokeIds.clear();
+    redrawCanvas();
+    return;
+  }
+
+  // Remove selected strokes.
+  strokes = strokes.filter(s => !s || !s.id || !selectedIds.has(s.id));
+
+  // Record a single undoable action.
+  strokes.push({
+    id: generateId('delete'),
+    type: 'deleteAction',
+    removed
+  });
+
+  redoStack = [];
+  selectedStrokeIds.clear();
+  isSelecting = false;
+  isDraggingSelection = false;
+  dragOriginals.clear();
+
+  saveToStorage();
+  rebuildAllLayers();
+  redrawCanvas();
+}
+
+function applyDeleteAction(action) {
+  if (!action || action.type !== 'deleteAction' || !Array.isArray(action.removed)) return;
+  const ids = new Set(action.removed.map(r => r && r.stroke && r.stroke.id).filter(Boolean));
+  if (!ids.size) return;
+  strokes = strokes.filter(s => !s || !s.id || !ids.has(s.id));
+}
+
+function revertDeleteAction(action) {
+  if (!action || action.type !== 'deleteAction' || !Array.isArray(action.removed)) return;
+
+  // Insert in ascending index order.
+  const sorted = action.removed
+    .filter(r => r && r.stroke)
+    .slice()
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+
+  for (const item of sorted) {
+    const idx = Math.max(0, Math.min(strokes.length, item.index ?? strokes.length));
+    const restored = deepClone(item.stroke);
+    ensureStrokeId(restored);
+    strokes.splice(idx, 0, restored);
+  }
+}
+
+function getStrokeById(id) {
+  return strokes.find(s => s && s.id === id);
+}
+
+function restoreStrokeState(target, snapshot) {
+  if (!target || !snapshot) return;
+  Object.keys(target).forEach(k => {
+    delete target[k];
+  });
+  Object.assign(target, deepClone(snapshot));
 }
 
 function hideAllPopups() {
@@ -215,6 +516,8 @@ function loadPageState(index) {
   panY = page.panY;
 
   layerCanvases = {};
+  isSelecting = false;
+  selectedStrokeIds.clear();
   rebuildAllLayers();
   redrawCanvas();
   renderLayers();
@@ -245,6 +548,7 @@ function rebuildAllLayers() {
   });
 
   strokes.forEach(stroke => {
+    if (!stroke || stroke.type === 'moveAction' || stroke.type === 'deleteAction') return;
     if (!stroke.layerId) {
       stroke.layerId = currentLayerId;
     }
@@ -313,6 +617,7 @@ function applyFloodFill(context, startX, startY, fillColor) {
 }
 
 function applyStrokeToLayer(stroke) {
+  if (!stroke || stroke.type === 'moveAction' || stroke.type === 'deleteAction') return;
   const layerId = stroke.layerId || currentLayerId;
   const lctx = getLayerContext(layerId);
 
@@ -536,24 +841,41 @@ function setActiveTool(tool) {
   currentTool = tool;
   document.querySelectorAll('.tool-button').forEach(btn => btn.classList.remove('active'));
   
-  if (tool === 'pen') {
+  if (tool === 'select') {
+    if (selectButton) selectButton.classList.add('active');
+    isEraser = false;
+    canvas.style.cursor = 'default';
+  } else if (tool === 'pen') {
     penButton.classList.add('active');
     isEraser = false;
+    canvas.style.cursor = 'crosshair';
   } else if (tool === 'eraser') {
     eraserButton.classList.add('active');
     isEraser = true;
+    canvas.style.cursor = 'crosshair';
   } else if (tool === 'text') {
     textButton.classList.add('active');
     isEraser = false;
+    canvas.style.cursor = 'text';
   } else if (tool === 'fill') {
     fillButton.classList.add('active');
     isEraser = false;
+    canvas.style.cursor = 'crosshair';
   } else if (tool === 'line' || tool === 'rectangle' || tool === 'circle' || tool === 'arrow') {
     shapesButton.classList.add('active');
     isEraser = false;
+    canvas.style.cursor = 'crosshair';
+  }
+
+  if (tool !== 'select') {
+    isSelecting = false;
+    selectedStrokeIds.clear();
+    isDraggingSelection = false;
+    dragOriginals.clear();
   }
 }
 
+if (selectButton) selectButton.addEventListener('click', () => setActiveTool('select'));
 penButton.addEventListener('click', () => setActiveTool('pen'));
 eraserButton.addEventListener('click', () => setActiveTool('eraser'));
 textButton.addEventListener('click', () => setActiveTool('text'));
@@ -757,6 +1079,17 @@ function undo() {
   
   const lastStroke = strokes.pop();
   redoStack.push(lastStroke);
+
+  if (lastStroke && lastStroke.type === 'moveAction' && Array.isArray(lastStroke.moved)) {
+    for (const item of lastStroke.moved) {
+      const target = getStrokeById(item.id);
+      if (!target) continue;
+      restoreStrokeState(target, item.before);
+    }
+  } else if (lastStroke && lastStroke.type === 'deleteAction') {
+    revertDeleteAction(lastStroke);
+  }
+
   saveToStorage();
   rebuildAllLayers();
   redrawCanvas();
@@ -767,6 +1100,17 @@ function redo() {
   
   const strokeToRedo = redoStack.pop();
   strokes.push(strokeToRedo);
+
+  if (strokeToRedo && strokeToRedo.type === 'moveAction' && Array.isArray(strokeToRedo.moved)) {
+    for (const item of strokeToRedo.moved) {
+      const target = getStrokeById(item.id);
+      if (!target) continue;
+      restoreStrokeState(target, item.after);
+    }
+  } else if (strokeToRedo && strokeToRedo.type === 'deleteAction') {
+    applyDeleteAction(strokeToRedo);
+  }
+
   saveToStorage();
   rebuildAllLayers();
   redrawCanvas();
@@ -790,6 +1134,30 @@ document.addEventListener('keydown', (e) => {
   if (textInputOverlay.style.display === 'block') {
     return;
   }
+
+  const isMod = e.ctrlKey || e.metaKey;
+
+  if (isMod && (e.key === 'c' || e.key === 'C')) {
+    if (selectedStrokeIds.size > 0) {
+      e.preventDefault();
+      copySelectionToClipboard();
+    }
+    return;
+  }
+
+  if (isMod && (e.key === 'v' || e.key === 'V')) {
+    if (selectionClipboard) {
+      e.preventDefault();
+      pasteSelectionFromClipboard();
+    }
+    return;
+  }
+
+  if (currentTool === 'select' && selectedStrokeIds.size > 0 && (e.key === 'Backspace' || e.key === 'Delete')) {
+    e.preventDefault();
+    deleteSelectedStrokes();
+    return;
+  }
   
   if (e.code === 'Space' && !spacePressed) {
     e.preventDefault();
@@ -798,12 +1166,14 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   
-  if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
+  if (isMod && (e.key === 'z' || e.key === 'Z')) {
     e.preventDefault();
     undo();
-  } else if (e.ctrlKey && (e.key === 'y' || e.key === 'Y')) {
+  } else if (isMod && (e.key === 'y' || e.key === 'Y')) {
     e.preventDefault();
     redo();
+  } else if (e.key === 's' || e.key === 'S') {
+    if (selectButton) selectButton.click();
   } else if (e.key === 'p' || e.key === 'P') {
     penButton.click();
   } else if (e.key === 'e' || e.key === 'E') {
@@ -829,7 +1199,13 @@ document.addEventListener('keyup', (e) => {
   if (e.code === 'Space') {
     spacePressed = false;
     if (!isPanning) {
-      canvas.style.cursor = 'crosshair';
+      if (currentTool === 'select') {
+        canvas.style.cursor = 'default';
+      } else if (currentTool === 'text') {
+        canvas.style.cursor = 'text';
+      } else {
+        canvas.style.cursor = 'crosshair';
+      }
     }
   }
 });
@@ -883,6 +1259,7 @@ function handleTextInput(x, y) {
     const text = textInput.value;
     if (text.trim()) {
       const textStroke = {
+        id: generateId('stroke'),
         type: 'text',
         x: textClickX,
         y: textClickY + textSize,
@@ -926,6 +1303,7 @@ function floodFill(startX, startY, fillColor) {
   applyFloodFill(lctx, screenX, screenY, fillColor);
   
   const fillStroke = {
+    id: generateId('stroke'),
     type: 'fill',
     x: startX,
     y: startY,
@@ -950,6 +1328,32 @@ function startDrawing(e) {
   
   const x = (e.offsetX - panX) / scale;
   const y = (e.offsetY - panY) / scale;
+
+  if (currentTool === 'select') {
+    if (selectedStrokeIds.size > 0) {
+      const b = getSelectionBounds();
+      if (b && rectContainsPoint(expandRect(b, 4 / Math.max(0.001, scale)), x, y)) {
+        isDraggingSelection = true;
+        dragLastX = x;
+        dragLastY = y;
+        dragOriginals = new Map();
+        for (const id of selectedStrokeIds) {
+          const s = getStrokeById(id);
+          if (!s) continue;
+          dragOriginals.set(id, deepClone(s));
+        }
+        return;
+      }
+    }
+
+    isSelecting = true;
+    selectionStartX = x;
+    selectionStartY = y;
+    selectionEndX = x;
+    selectionEndY = y;
+    redrawCanvas();
+    return;
+  }
   
   if (currentTool === 'text') {
     handleTextInput(x, y);
@@ -983,6 +1387,35 @@ function draw(e) {
     panX = e.clientX - panStartX;
     panY = e.clientY - panStartY;
     applyTransform();
+    return;
+  }
+
+  if (currentTool === 'select' && isSelecting) {
+    const x = (e.offsetX - panX) / scale;
+    const y = (e.offsetY - panY) / scale;
+    selectionEndX = x;
+    selectionEndY = y;
+    redrawCanvas();
+    return;
+  }
+
+  if (currentTool === 'select' && isDraggingSelection) {
+    const x = (e.offsetX - panX) / scale;
+    const y = (e.offsetY - panY) / scale;
+    const dx = x - dragLastX;
+    const dy = y - dragLastY;
+    dragLastX = x;
+    dragLastY = y;
+
+    if (dx !== 0 || dy !== 0) {
+      for (const id of selectedStrokeIds) {
+        const s = getStrokeById(id);
+        if (!s) continue;
+        translateStroke(s, dx, dy);
+      }
+      rebuildAllLayers();
+      redrawCanvas();
+    }
     return;
   }
   
@@ -1020,7 +1453,80 @@ function draw(e) {
 function stopDrawing(e) {
   if (isPanning) {
     isPanning = false;
-    canvas.style.cursor = spacePressed ? 'grab' : 'crosshair';
+    if (spacePressed) {
+      canvas.style.cursor = 'grab';
+    } else if (currentTool === 'select') {
+      canvas.style.cursor = 'default';
+    } else if (currentTool === 'text') {
+      canvas.style.cursor = 'text';
+    } else {
+      canvas.style.cursor = 'crosshair';
+    }
+    return;
+  }
+
+  if (currentTool === 'select' && isSelecting) {
+    const x = (e.offsetX - panX) / scale;
+    const y = (e.offsetY - panY) / scale;
+    selectionEndX = x;
+    selectionEndY = y;
+
+    const r = normalizeRect(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
+    const w = r.maxX - r.minX;
+    const h = r.maxY - r.minY;
+
+    selectedStrokeIds.clear();
+
+    const clickThreshold = 3 / Math.max(0.001, scale);
+    if (w < clickThreshold && h < clickThreshold) {
+      for (let i = strokes.length - 1; i >= 0; i--) {
+        const s = strokes[i];
+        ensureStrokeId(s);
+        const b = getStrokeBounds(s);
+        if (!b) continue;
+        if (rectContainsPoint(b, x, y)) {
+          selectedStrokeIds.add(s.id);
+          break;
+        }
+      }
+    } else {
+      for (const s of strokes) {
+        ensureStrokeId(s);
+        const b = getStrokeBounds(s);
+        if (!b) continue;
+        if (rectIntersects(b, r)) selectedStrokeIds.add(s.id);
+      }
+    }
+
+    isSelecting = false;
+    redrawCanvas();
+    return;
+  }
+
+  if (currentTool === 'select' && isDraggingSelection) {
+    // Commit move as a single undoable action.
+    const moved = [];
+    for (const id of selectedStrokeIds) {
+      const before = dragOriginals.get(id);
+      const afterStroke = getStrokeById(id);
+      if (!before || !afterStroke) continue;
+      moved.push({ id, before: deepClone(before), after: deepClone(afterStroke) });
+    }
+
+    if (moved.length) {
+      strokes.push({
+        id: generateId('move'),
+        type: 'moveAction',
+        moved
+      });
+      redoStack = [];
+      saveToStorage();
+    }
+
+    isDraggingSelection = false;
+    dragOriginals.clear();
+    rebuildAllLayers();
+    redrawCanvas();
     return;
   }
   
@@ -1031,6 +1537,7 @@ function stopDrawing(e) {
     const y = (e.offsetY - panY) / scale;
     
     const shape = {
+      id: generateId('stroke'),
       type: currentTool,
       startX: shapeStartX,
       startY: shapeStartY,
@@ -1098,6 +1605,7 @@ canvas.addEventListener('mouseout', stopDrawing);
 
 function saveStroke(x, y, lastX, lastY) {
   const stroke = {
+    id: generateId('stroke'),
     type: currentTool,
     x: x,
     y: y,
@@ -1172,6 +1680,7 @@ function loadFromStorage() {
 
     strokes.forEach(s => {
       if (!s.layerId) s.layerId = currentLayerId;
+      ensureStrokeId(s);
     });
 
     layerCanvases = {};
@@ -1198,6 +1707,8 @@ function redrawCanvas() {
 
   ctx.globalCompositeOperation = 'source-over';
   ctx.setTransform(scale, 0, 0, scale, panX, panY);
+
+  drawSelectionOverlay();
 }
 
 function getTouchPos(e) {
@@ -1214,6 +1725,32 @@ canvas.addEventListener('touchstart', (e) => {
 
   const x = (pos.x - panX) / scale;
   const y = (pos.y - panY) / scale;
+
+  if (currentTool === 'select') {
+    if (selectedStrokeIds.size > 0) {
+      const b = getSelectionBounds();
+      if (b && rectContainsPoint(expandRect(b, 6 / Math.max(0.001, scale)), x, y)) {
+        isDraggingSelection = true;
+        dragLastX = x;
+        dragLastY = y;
+        dragOriginals = new Map();
+        for (const id of selectedStrokeIds) {
+          const s = getStrokeById(id);
+          if (!s) continue;
+          dragOriginals.set(id, deepClone(s));
+        }
+        return;
+      }
+    }
+
+    isSelecting = true;
+    selectionStartX = x;
+    selectionStartY = y;
+    selectionEndX = x;
+    selectionEndY = y;
+    redrawCanvas();
+    return;
+  }
 
   if (currentTool === 'fill') {
     floodFill(Math.floor(x), Math.floor(y), penColor);
@@ -1235,6 +1772,37 @@ canvas.addEventListener('touchstart', (e) => {
 
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
+  if (currentTool === 'select' && isSelecting) {
+    const pos = getTouchPos(e);
+    const x = (pos.x - panX) / scale;
+    const y = (pos.y - panY) / scale;
+    selectionEndX = x;
+    selectionEndY = y;
+    redrawCanvas();
+    return;
+  }
+
+  if (currentTool === 'select' && isDraggingSelection) {
+    const pos = getTouchPos(e);
+    const x = (pos.x - panX) / scale;
+    const y = (pos.y - panY) / scale;
+    const dx = x - dragLastX;
+    const dy = y - dragLastY;
+    dragLastX = x;
+    dragLastY = y;
+
+    if (dx !== 0 || dy !== 0) {
+      for (const id of selectedStrokeIds) {
+        const s = getStrokeById(id);
+        if (!s) continue;
+        translateStroke(s, dx, dy);
+      }
+      rebuildAllLayers();
+      redrawCanvas();
+    }
+    return;
+  }
+
   if (!drawing) return;
   
   const pos = getTouchPos(e);
@@ -1275,8 +1843,69 @@ canvas.addEventListener('touchmove', (e) => {
 });
 
 canvas.addEventListener('touchend', () => {
+  if (currentTool === 'select' && isSelecting) {
+    const r = normalizeRect(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
+    const w = r.maxX - r.minX;
+    const h = r.maxY - r.minY;
+    selectedStrokeIds.clear();
+
+    const clickThreshold = 3 / Math.max(0.001, scale);
+    if (w < clickThreshold && h < clickThreshold) {
+      const x = selectionEndX;
+      const y = selectionEndY;
+      for (let i = strokes.length - 1; i >= 0; i--) {
+        const s = strokes[i];
+        ensureStrokeId(s);
+        const b = getStrokeBounds(s);
+        if (!b) continue;
+        if (rectContainsPoint(b, x, y)) {
+          selectedStrokeIds.add(s.id);
+          break;
+        }
+      }
+    } else {
+      for (const s of strokes) {
+        ensureStrokeId(s);
+        const b = getStrokeBounds(s);
+        if (!b) continue;
+        if (rectIntersects(b, r)) selectedStrokeIds.add(s.id);
+      }
+    }
+
+    isSelecting = false;
+    redrawCanvas();
+    return;
+  }
+
+  if (currentTool === 'select' && isDraggingSelection) {
+    const moved = [];
+    for (const id of selectedStrokeIds) {
+      const before = dragOriginals.get(id);
+      const afterStroke = getStrokeById(id);
+      if (!before || !afterStroke) continue;
+      moved.push({ id, before: deepClone(before), after: deepClone(afterStroke) });
+    }
+
+    if (moved.length) {
+      strokes.push({
+        id: generateId('move'),
+        type: 'moveAction',
+        moved
+      });
+      redoStack = [];
+      saveToStorage();
+    }
+
+    isDraggingSelection = false;
+    dragOriginals.clear();
+    rebuildAllLayers();
+    redrawCanvas();
+    return;
+  }
+
   if (isDrawingShape) {
     const shape = {
+      id: generateId('stroke'),
       type: currentTool,
       startX: shapeStartX,
       startY: shapeStartY,

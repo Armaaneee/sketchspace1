@@ -30,7 +30,6 @@ let pages = [];
 let currentPageIndex = 0;
 let layerCanvases = {};
 
-// Selection + clipboard
 let isSelecting = false;
 let selectionStartX = 0;
 let selectionStartY = 0;
@@ -91,8 +90,33 @@ const pagesPopup = document.getElementById('pages-popup');
 const pagesList = document.getElementById('pages-list');
 const addPageButton = document.getElementById('add-page-button');
 
+const zoomValue = document.getElementById('zoom-value');
+const zoomInButton = document.getElementById('zoom-in');
+const zoomOutButton = document.getElementById('zoom-out');
+
+const ZOOM_STEP = 0.1;
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function updateZoomUI() {
+  if (!zoomValue) return;
+  zoomValue.textContent = (Math.round(scale * 10) * 10) + '%';
+}
+
+function zoomTo(newScale, anchorX, anchorY) {
+  const snapped = Math.round(newScale / ZOOM_STEP) * ZOOM_STEP;
+  const clamped = clamp(snapped, 0.1, 5);
+  const worldX = (anchorX - panX) / scale;
+  const worldY = (anchorY - panY) / scale;
+
+  scale = clamped;
+  panX = anchorX - worldX * scale;
+  panY = anchorY - worldY * scale;
+
+  applyTransform();
+  updateZoomUI();
 }
 
 function generateId(prefix) {
@@ -136,7 +160,6 @@ function expandRect(rect, padding) {
 }
 
 function getStrokeBounds(stroke) {
-  // Fill strokes are context-sensitive; do not include in selection.
   if (!stroke || stroke.type === 'fill') return null;
 
   if (stroke.type === 'moveAction') return null;
@@ -173,6 +196,16 @@ function getStrokeBounds(stroke) {
       maxY: stroke.y
     };
     return expandRect(rect, 2);
+  }
+
+  if (stroke.type === 'fillRegion') {
+    if (typeof stroke.x !== 'number' || typeof stroke.y !== 'number' || typeof stroke.w !== 'number' || typeof stroke.h !== 'number') return null;
+    return expandRect({
+      minX: stroke.x,
+      minY: stroke.y,
+      maxX: stroke.x + stroke.w,
+      maxY: stroke.y + stroke.h
+    }, 1 / Math.max(0.001, scale));
   }
 
   if (
@@ -238,9 +271,8 @@ function drawSelectionOverlay() {
 function copySelectionToClipboard() {
   const selected = strokes
     .filter(s => selectedStrokeIds.has(s.id))
-    .filter(s => s.type !== 'fill' && s.type !== 'moveAction');
+    .filter(s => s.type !== 'fill' && s.type !== 'moveAction' && s.type !== 'deleteAction');
 
-  // If nothing is actually selected, clear clipboard so paste doesn't keep using stale data.
   if (!selected.length) {
     selectionClipboard = null;
     pasteCount = 0;
@@ -256,6 +288,12 @@ function copySelectionToClipboard() {
 
 function translateStroke(stroke, dx, dy) {
   if (!stroke) return;
+
+  if (stroke.type === 'fillRegion') {
+    stroke.x += dx;
+    stroke.y += dy;
+    return;
+  }
 
   if (stroke.type === 'line' || stroke.type === 'rectangle' || stroke.type === 'circle' || stroke.type === 'arrow') {
     stroke.startX += dx;
@@ -323,10 +361,8 @@ function deleteSelectedStrokes() {
     return;
   }
 
-  // Remove selected strokes.
   strokes = strokes.filter(s => !s || !s.id || !selectedIds.has(s.id));
 
-  // Record a single undoable action.
   strokes.push({
     id: generateId('delete'),
     type: 'deleteAction',
@@ -354,7 +390,6 @@ function applyDeleteAction(action) {
 function revertDeleteAction(action) {
   if (!action || action.type !== 'deleteAction' || !Array.isArray(action.removed)) return;
 
-  // Insert in ascending index order.
   const sorted = action.removed
     .filter(r => r && r.stroke)
     .slice()
@@ -569,51 +604,201 @@ function applyFloodFill(context, startX, startY, fillColor) {
   const pixels = imageData.data;
 
   const startPos = (startY * w + startX) * 4;
-  const startR = pixels[startPos];
-  const startG = pixels[startPos + 1];
-  const startB = pixels[startPos + 2];
-  const startA = pixels[startPos + 3];
+  const targetR = pixels[startPos];
+  const targetG = pixels[startPos + 1];
+  const targetB = pixels[startPos + 2];
+  const targetA = pixels[startPos + 3];
 
   const fillR = parseInt(fillColor.slice(1, 3), 16);
   const fillG = parseInt(fillColor.slice(3, 5), 16);
   const fillB = parseInt(fillColor.slice(5, 7), 16);
 
-  if (startR === fillR && startG === fillG && startB === fillB && startA === 255) {
+  const tolerance = 10;
+
+  const matchesTarget = (pos) => {
+    const a = pixels[pos + 3];
+    if (targetA === 0) {
+      return a === 0;
+    }
+    if (Math.abs(a - targetA) > tolerance) return false;
+    if (Math.abs(pixels[pos] - targetR) > tolerance) return false;
+    if (Math.abs(pixels[pos + 1] - targetG) > tolerance) return false;
+    if (Math.abs(pixels[pos + 2] - targetB) > tolerance) return false;
+    return true;
+  };
+
+  if (
+    targetA === 255 &&
+    Math.abs(targetR - fillR) <= tolerance &&
+    Math.abs(targetG - fillG) <= tolerance &&
+    Math.abs(targetB - fillB) <= tolerance
+  ) {
     return;
   }
 
-  const stack = [[startX, startY]];
-  const visited = new Set();
-
-  while (stack.length > 0 && stack.length < 50000) {
-    const [x, y] = stack.pop();
-    if (x < 0 || x >= w || y < 0 || y >= h) continue;
-
-    const key = `${x},${y}`;
-    if (visited.has(key)) continue;
-
-    const pos = (y * w + x) * 4;
-    const r = pixels[pos];
-    const g = pixels[pos + 1];
-    const b = pixels[pos + 2];
-    const a = pixels[pos + 3];
-
-    if (r !== startR || g !== startG || b !== startB || a !== startA) continue;
-
-    visited.add(key);
-
+  const setFill = (pos) => {
     pixels[pos] = fillR;
     pixels[pos + 1] = fillG;
     pixels[pos + 2] = fillB;
     pixels[pos + 3] = 255;
+  };
 
-    stack.push([x + 1, y]);
-    stack.push([x - 1, y]);
-    stack.push([x, y + 1]);
-    stack.push([x, y - 1]);
+  const stack = [[startX, startY]];
+
+  const pushSpans = (y, x1, x2) => {
+    let x = x1;
+    while (x <= x2) {
+      const pos = (y * w + x) * 4;
+      if (matchesTarget(pos)) {
+        stack.push([x, y]);
+        x += 1;
+        while (x <= x2 && matchesTarget((y * w + x) * 4)) {
+          x += 1;
+        }
+      }
+      x += 1;
+    }
+  };
+
+  while (stack.length) {
+    const [x0, y0] = stack.pop();
+    if (x0 < 0 || x0 >= w || y0 < 0 || y0 >= h) continue;
+
+    let left = x0;
+    while (left >= 0 && matchesTarget((y0 * w + left) * 4)) {
+      left -= 1;
+    }
+    left += 1;
+
+    let right = x0;
+    while (right < w && matchesTarget((y0 * w + right) * 4)) {
+      right += 1;
+    }
+    right -= 1;
+
+    for (let x = left; x <= right; x++) {
+      setFill((y0 * w + x) * 4);
+    }
+
+    if (y0 > 0) pushSpans(y0 - 1, left, right);
+    if (y0 < h - 1) pushSpans(y0 + 1, left, right);
   }
 
   context.putImageData(imageData, 0, 0);
+}
+
+function applyFloodFillRegion(context, startX, startY, fillColor) {
+  const w = context.canvas.width;
+  const h = context.canvas.height;
+  if (startX < 0 || startX >= w || startY < 0 || startY >= h) return null;
+
+  const imageData = context.getImageData(0, 0, w, h);
+  const pixels = imageData.data;
+
+  const startPos = (startY * w + startX) * 4;
+  const targetR = pixels[startPos];
+  const targetG = pixels[startPos + 1];
+  const targetB = pixels[startPos + 2];
+  const targetA = pixels[startPos + 3];
+
+  const fillR = parseInt(fillColor.slice(1, 3), 16);
+  const fillG = parseInt(fillColor.slice(3, 5), 16);
+  const fillB = parseInt(fillColor.slice(5, 7), 16);
+
+  const tolerance = 10;
+
+  const matchesTarget = (pos) => {
+    const a = pixels[pos + 3];
+    if (targetA === 0) {
+      return a === 0;
+    }
+    if (Math.abs(a - targetA) > tolerance) return false;
+    if (Math.abs(pixels[pos] - targetR) > tolerance) return false;
+    if (Math.abs(pixels[pos + 1] - targetG) > tolerance) return false;
+    if (Math.abs(pixels[pos + 2] - targetB) > tolerance) return false;
+    return true;
+  };
+
+  if (
+    targetA === 255 &&
+    Math.abs(targetR - fillR) <= tolerance &&
+    Math.abs(targetG - fillG) <= tolerance &&
+    Math.abs(targetB - fillB) <= tolerance
+  ) {
+    return null;
+  }
+
+  const setFill = (pos) => {
+    pixels[pos] = fillR;
+    pixels[pos + 1] = fillG;
+    pixels[pos + 2] = fillB;
+    pixels[pos + 3] = 255;
+  };
+
+  const stack = [[startX, startY]];
+  const spans = [];
+  let minX = startX;
+  let maxX = startX;
+  let minY = startY;
+  let maxY = startY;
+
+  const pushSpans = (y, x1, x2) => {
+    let x = x1;
+    while (x <= x2) {
+      const pos = (y * w + x) * 4;
+      if (matchesTarget(pos)) {
+        stack.push([x, y]);
+        x += 1;
+        while (x <= x2 && matchesTarget((y * w + x) * 4)) {
+          x += 1;
+        }
+      }
+      x += 1;
+    }
+  };
+
+  while (stack.length) {
+    const [x0, y0] = stack.pop();
+    if (x0 < 0 || x0 >= w || y0 < 0 || y0 >= h) continue;
+
+    let left = x0;
+    while (left >= 0 && matchesTarget((y0 * w + left) * 4)) {
+      left -= 1;
+    }
+    left += 1;
+
+    let right = x0;
+    while (right < w && matchesTarget((y0 * w + right) * 4)) {
+      right += 1;
+    }
+    right -= 1;
+
+    for (let x = left; x <= right; x++) {
+      setFill((y0 * w + x) * 4);
+    }
+
+    spans.push([y0, left, right]);
+    minX = Math.min(minX, left);
+    maxX = Math.max(maxX, right);
+    minY = Math.min(minY, y0);
+    maxY = Math.max(maxY, y0);
+
+    if (y0 > 0) pushSpans(y0 - 1, left, right);
+    if (y0 < h - 1) pushSpans(y0 + 1, left, right);
+  }
+
+  if (!spans.length) return null;
+
+  context.putImageData(imageData, 0, 0);
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    spans,
+    targetA
+  };
 }
 
 function applyStrokeToLayer(stroke) {
@@ -622,10 +807,62 @@ function applyStrokeToLayer(stroke) {
   const lctx = getLayerContext(layerId);
 
   if (stroke.type === 'fill') {
-    const screenX = Math.floor(stroke.x * scale + panX);
-    const screenY = Math.floor(stroke.y * scale + panY);
+    const screenX = Math.round(stroke.x * scale + panX);
+    const screenY = Math.round(stroke.y * scale + panY);
     lctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    const allowTransparent = stroke.allowTransparent === true;
+    const sample = lctx.getImageData(screenX, screenY, 1, 1).data;
+    if (!allowTransparent && sample[3] === 0) return;
+
     applyFloodFill(lctx, screenX, screenY, stroke.color);
+    return;
+  }
+
+  if (stroke.type === 'fillRegion') {
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
+    lctx.globalCompositeOperation = 'source-over';
+    lctx.fillStyle = stroke.color;
+
+    const screenX = Math.round(stroke.x * scale + panX);
+    const screenY = Math.round(stroke.y * scale + panY);
+    const screenW = Math.max(1, Math.round(stroke.w * scale));
+    const screenH = Math.max(1, Math.round(stroke.h * scale));
+
+    const pw = Math.max(1, stroke.pw || 1);
+    const ph = Math.max(1, stroke.ph || 1);
+    const sx = screenW / pw;
+    const sy = screenH / ph;
+
+    const spans = Array.isArray(stroke.spans) ? stroke.spans : [];
+    for (let i = 0; i + 2 < spans.length; i += 3) {
+      const y0 = spans[i];
+      const x1 = spans[i + 1];
+      const x2 = spans[i + 2];
+
+      const dstY = screenY + Math.floor(y0 * sy);
+      const dstY2 = screenY + Math.floor((y0 + 1) * sy);
+      const dstH = Math.max(1, dstY2 - dstY);
+
+      const dstX1 = screenX + Math.floor(x1 * sx);
+      const dstX2 = screenX + Math.ceil((x2 + 1) * sx) - 1;
+      const dstW = dstX2 - dstX1 + 1;
+      if (dstW <= 0 || dstH <= 0) continue;
+
+      const drawX = clamp(dstX1, 0, lctx.canvas.width);
+      const drawY = clamp(dstY, 0, lctx.canvas.height);
+
+      const skipX = drawX - dstX1;
+      const skipY = drawY - dstY;
+
+      const maxW = lctx.canvas.width - drawX;
+      const maxH = lctx.canvas.height - drawY;
+      const drawW = Math.min(dstW - skipX, maxW);
+      const drawH = Math.min(dstH - skipY, maxH);
+      if (drawW <= 0 || drawH <= 0) continue;
+
+      lctx.fillRect(drawX, drawY, drawW, drawH);
+    }
     return;
   }
 
@@ -1216,18 +1453,8 @@ canvas.addEventListener('wheel', (e) => {
   const mouseX = e.offsetX;
   const mouseY = e.offsetY;
   
-  const worldX = (mouseX - panX) / scale;
-  const worldY = (mouseY - panY) / scale;
-  
-  const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-  const newScale = Math.max(0.1, Math.min(5, scale * zoomFactor));
-  
-  scale = newScale;
-  
-  panX = mouseX - worldX * scale;
-  panY = mouseY - worldY * scale;
-  
-  applyTransform();
+  const direction = e.deltaY < 0 ? 1 : -1;
+  zoomTo(scale + direction * ZOOM_STEP, mouseX, mouseY);
 }, { passive: false });
 
 function applyTransform() {
@@ -1235,10 +1462,22 @@ function applyTransform() {
   redrawCanvas();
 }
 
+if (zoomInButton) {
+  zoomInButton.addEventListener('click', () => {
+    zoomTo(scale + ZOOM_STEP, canvas.width / 2, canvas.height / 2);
+  });
+}
+
+if (zoomOutButton) {
+  zoomOutButton.addEventListener('click', () => {
+    zoomTo(scale - ZOOM_STEP, canvas.width / 2, canvas.height / 2);
+  });
+}
+
 let textClickX = 0;
 let textClickY = 0;
 
-function handleTextInput(x, y) {
+function handleTextInput(x, y, immediateFocus = false) {
   textClickX = x;
   textClickY = y;
   
@@ -1252,7 +1491,10 @@ function handleTextInput(x, y) {
   textInput.style.fontSize = textSize + 'px';
   textInput.style.color = penColor;
   textInput.value = '';
-  
+
+  if (immediateFocus) {
+    textInput.focus();
+  }
   setTimeout(() => textInput.focus(), 0);
   
   const finishText = () => {
@@ -1294,23 +1536,42 @@ function handleTextInput(x, y) {
   };
 }
 
-function floodFill(startX, startY, fillColor) {
+function floodFill(screenX, screenY, fillColor) {
   const lctx = getLayerContext(currentLayerId);
 
-  const screenX = Math.floor(startX * scale + panX);
-  const screenY = Math.floor(startY * scale + panY);
+  const x = Math.round(screenX);
+  const y = Math.round(screenY);
   lctx.setTransform(1, 0, 0, 1, 0, 0);
-  applyFloodFill(lctx, screenX, screenY, fillColor);
-  
+
+  const region = applyFloodFillRegion(lctx, x, y, fillColor);
+  if (!region) return;
+
+  const pw = region.maxX - region.minX + 1;
+  const ph = region.maxY - region.minY + 1;
+  const worldX = (region.minX - panX) / scale;
+  const worldY = (region.minY - panY) / scale;
+  const worldW = pw / scale;
+  const worldH = ph / scale;
+
+  const spans = [];
+  for (const s of region.spans) {
+    spans.push(s[0] - region.minY, s[1] - region.minX, s[2] - region.minX);
+  }
+
   const fillStroke = {
     id: generateId('stroke'),
-    type: 'fill',
-    x: startX,
-    y: startY,
+    type: 'fillRegion',
+    x: worldX,
+    y: worldY,
+    w: worldW,
+    h: worldH,
+    pw,
+    ph,
+    spans,
     color: fillColor,
     layerId: currentLayerId
   };
-  
+
   strokes.push(fillStroke);
   redoStack = [];
   saveToStorage();
@@ -1356,12 +1617,12 @@ function startDrawing(e) {
   }
   
   if (currentTool === 'text') {
-    handleTextInput(x, y);
+    handleTextInput(x, y, false);
     return;
   }
   
   if (currentTool === 'fill') {
-    floodFill(Math.floor(x), Math.floor(y), penColor);
+    floodFill(e.offsetX, e.offsetY, penColor);
     return;
   }
   
@@ -1504,7 +1765,6 @@ function stopDrawing(e) {
   }
 
   if (currentTool === 'select' && isDraggingSelection) {
-    // Commit move as a single undoable action.
     const moved = [];
     for (const id of selectedStrokeIds) {
       const before = dragOriginals.get(id);
@@ -1689,6 +1949,8 @@ function loadFromStorage() {
     renderLayers();
     renderPages();
 
+    updateZoomUI();
+
     saveToStorage();
   } catch (e) {
     console.error('Load error:', e);
@@ -1720,7 +1982,6 @@ function getTouchPos(e) {
 }
 
 canvas.addEventListener('touchstart', (e) => {
-  e.preventDefault();
   const pos = getTouchPos(e);
 
   const x = (pos.x - panX) / scale;
@@ -1752,8 +2013,15 @@ canvas.addEventListener('touchstart', (e) => {
     return;
   }
 
+  if (currentTool === 'text') {
+    handleTextInput(x, y, true);
+    return;
+  }
+
+  e.preventDefault();
+
   if (currentTool === 'fill') {
-    floodFill(Math.floor(x), Math.floor(y), penColor);
+    floodFill(pos.x, pos.y, penColor);
     return;
   }
 
@@ -1768,7 +2036,7 @@ canvas.addEventListener('touchstart', (e) => {
     lastX = tinyX;
     lastY = tinyY;
   }
-});
+}, { passive: false });
 
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
@@ -1840,7 +2108,7 @@ canvas.addEventListener('touchmove', (e) => {
     lastX = x;
     lastY = y;
   }
-});
+}, { passive: false });
 
 canvas.addEventListener('touchend', () => {
   if (currentTool === 'select' && isSelecting) {

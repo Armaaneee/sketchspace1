@@ -85,6 +85,11 @@ body {
   justify-content: center;
 }
 
+#logo img {
+  display: block;
+  object-fit: contain;
+}
+
 .tools-section {
   width: 100%;
   display: flex;

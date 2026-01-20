@@ -4,18 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>SketchSpace</title>
+    <link rel="icon" type="image/x-icon" href="assets/favicon.ico" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <div id="sidebar">
         <div id="sidebar-header">
             <div id="logo">
-                <svg viewBox="0 0 24 24" width="36" height="36">
-                    <path
-                        fill="#4d90fe"
-                        d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
-                    />
-                </svg>
+                <img src="assets/logo.png" width="36" height="36" alt="SketchSpace" />
             </div>
         </div>
 
@@ -27,6 +23,15 @@
                 <button class="tool-button" id="select-button" title="Select">
                     <svg viewBox="0 0 24 24">
                         <path d="M3 2l7.5 18 2-7.5L20 10 3 2z" />
+                    </svg>
+                </button>
+
+                <button class="tool-button" id="pan-button" title="Pan">
+                    <svg viewBox="0 0 24 24">
+                        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11V6.5a1.5 1.5 0 0 1 3 0V10" />
+                        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M10 10V5.5a1.5 1.5 0 0 1 3 0V10" />
+                        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M13 10V6a1.5 1.5 0 0 1 3 0v6" />
+                        <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M16 12V7.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6H10a5 5 0 0 1-5-5v-1.5a1.5 1.5 0 0 1 3 0V14" />
                     </svg>
                 </button>
 

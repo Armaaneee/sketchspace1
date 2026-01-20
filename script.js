@@ -23,6 +23,7 @@ let isPanning = false;
 let panStartX = 0;
 let panStartY = 0;
 let spacePressed = false;
+let currentStrokeGroupId = null;
 
 let layers = [];
 let currentLayerId = null;
@@ -46,6 +47,7 @@ let dragOriginals = new Map();
 
 const penButton = document.getElementById('pen-button');
 const selectButton = document.getElementById('select-button');
+const panButton = document.getElementById('pan-button');
 const eraserButton = document.getElementById('eraser-button');
 const textButton = document.getElementById('text-button');
 const fillButton = document.getElementById('fill-button');
@@ -1082,6 +1084,10 @@ function setActiveTool(tool) {
     if (selectButton) selectButton.classList.add('active');
     isEraser = false;
     canvas.style.cursor = 'default';
+  } else if (tool === 'pan') {
+    if (panButton) panButton.classList.add('active');
+    isEraser = false;
+    canvas.style.cursor = 'grab';
   } else if (tool === 'pen') {
     penButton.classList.add('active');
     isEraser = false;
@@ -1113,6 +1119,7 @@ function setActiveTool(tool) {
 }
 
 if (selectButton) selectButton.addEventListener('click', () => setActiveTool('select'));
+if (panButton) panButton.addEventListener('click', () => setActiveTool('pan'));
 penButton.addEventListener('click', () => setActiveTool('pen'));
 eraserButton.addEventListener('click', () => setActiveTool('eraser'));
 textButton.addEventListener('click', () => setActiveTool('text'));
@@ -1313,18 +1320,29 @@ exportButton.addEventListener('click', () => {
 
 function undo() {
   if (strokes.length === 0) return;
-  
-  const lastStroke = strokes.pop();
-  redoStack.push(lastStroke);
 
-  if (lastStroke && lastStroke.type === 'moveAction' && Array.isArray(lastStroke.moved)) {
-    for (const item of lastStroke.moved) {
-      const target = getStrokeById(item.id);
-      if (!target) continue;
-      restoreStrokeState(target, item.before);
+  const last = strokes[strokes.length - 1];
+  if (last && last.groupId) {
+    const groupId = last.groupId;
+    const batch = [];
+    while (strokes.length && strokes[strokes.length - 1] && strokes[strokes.length - 1].groupId === groupId) {
+      batch.push(strokes.pop());
     }
-  } else if (lastStroke && lastStroke.type === 'deleteAction') {
-    revertDeleteAction(lastStroke);
+    batch.reverse();
+    redoStack.push({ type: 'batch', strokes: batch });
+  } else {
+    const lastStroke = strokes.pop();
+    redoStack.push(lastStroke);
+
+    if (lastStroke && lastStroke.type === 'moveAction' && Array.isArray(lastStroke.moved)) {
+      for (const item of lastStroke.moved) {
+        const target = getStrokeById(item.id);
+        if (!target) continue;
+        restoreStrokeState(target, item.before);
+      }
+    } else if (lastStroke && lastStroke.type === 'deleteAction') {
+      revertDeleteAction(lastStroke);
+    }
   }
 
   saveToStorage();
@@ -1334,18 +1352,23 @@ function undo() {
 
 function redo() {
   if (redoStack.length === 0) return;
-  
-  const strokeToRedo = redoStack.pop();
-  strokes.push(strokeToRedo);
 
-  if (strokeToRedo && strokeToRedo.type === 'moveAction' && Array.isArray(strokeToRedo.moved)) {
-    for (const item of strokeToRedo.moved) {
-      const target = getStrokeById(item.id);
-      if (!target) continue;
-      restoreStrokeState(target, item.after);
+  const entry = redoStack.pop();
+  if (entry && entry.type === 'batch' && Array.isArray(entry.strokes)) {
+    strokes.push(...entry.strokes);
+  } else {
+    const strokeToRedo = entry;
+    strokes.push(strokeToRedo);
+
+    if (strokeToRedo && strokeToRedo.type === 'moveAction' && Array.isArray(strokeToRedo.moved)) {
+      for (const item of strokeToRedo.moved) {
+        const target = getStrokeById(item.id);
+        if (!target) continue;
+        restoreStrokeState(target, item.after);
+      }
+    } else if (strokeToRedo && strokeToRedo.type === 'deleteAction') {
+      applyDeleteAction(strokeToRedo);
     }
-  } else if (strokeToRedo && strokeToRedo.type === 'deleteAction') {
-    applyDeleteAction(strokeToRedo);
   }
 
   saveToStorage();
@@ -1476,6 +1499,7 @@ if (zoomOutButton) {
 
 let textClickX = 0;
 let textClickY = 0;
+let pendingTextTap = null;
 
 function handleTextInput(x, y, immediateFocus = false) {
   textClickX = x;
@@ -1586,6 +1610,14 @@ function startDrawing(e) {
     canvas.style.cursor = 'grabbing';
     return;
   }
+
+  if (currentTool === 'pan') {
+    isPanning = true;
+    panStartX = e.clientX - panX;
+    panStartY = e.clientY - panY;
+    canvas.style.cursor = 'grabbing';
+    return;
+  }
   
   const x = (e.offsetX - panX) / scale;
   const y = (e.offsetY - panY) / scale;
@@ -1631,6 +1663,7 @@ function startDrawing(e) {
   lastY = y;
   
   if (currentTool === 'pen' || currentTool === 'eraser') {
+    currentStrokeGroupId = generateId('group');
     const tinyX = lastX + 0.01;
     const tinyY = lastY + 0.01;
     saveStroke(tinyX, tinyY, lastX, lastY);
@@ -1718,6 +1751,8 @@ function stopDrawing(e) {
       canvas.style.cursor = 'grab';
     } else if (currentTool === 'select') {
       canvas.style.cursor = 'default';
+    } else if (currentTool === 'pan') {
+      canvas.style.cursor = 'grab';
     } else if (currentTool === 'text') {
       canvas.style.cursor = 'text';
     } else {
@@ -1816,6 +1851,7 @@ function stopDrawing(e) {
     isDrawingShape = false;
   }
   
+  currentStrokeGroupId = null;
   drawing = false;
 }
 
@@ -1871,6 +1907,7 @@ function saveStroke(x, y, lastX, lastY) {
     y: y,
     lastX: lastX,
     lastY: lastY,
+    groupId: currentStrokeGroupId,
     color: penColor,
     thickness: isEraser ? eraserThickness : penThickness,
     isEraser: isEraser,
@@ -1984,6 +2021,16 @@ function getTouchPos(e) {
 canvas.addEventListener('touchstart', (e) => {
   const pos = getTouchPos(e);
 
+  if (currentTool === 'pan') {
+    e.preventDefault();
+    pendingTextTap = null;
+    isPanning = true;
+    const t = e.touches[0];
+    panStartX = t.clientX - panX;
+    panStartY = t.clientY - panY;
+    return;
+  }
+
   const x = (pos.x - panX) / scale;
   const y = (pos.y - panY) / scale;
 
@@ -2014,7 +2061,8 @@ canvas.addEventListener('touchstart', (e) => {
   }
 
   if (currentTool === 'text') {
-    handleTextInput(x, y, true);
+    e.preventDefault();
+    pendingTextTap = { x, y, sx: pos.x, sy: pos.y };
     return;
   }
 
@@ -2030,6 +2078,7 @@ canvas.addEventListener('touchstart', (e) => {
   lastY = y;
 
   if (currentTool === 'pen' || currentTool === 'eraser') {
+    currentStrokeGroupId = generateId('group');
     const tinyX = lastX + 0.01;
     const tinyY = lastY + 0.01;
     saveStroke(tinyX, tinyY, lastX, lastY);
@@ -2040,6 +2089,23 @@ canvas.addEventListener('touchstart', (e) => {
 
 canvas.addEventListener('touchmove', (e) => {
   e.preventDefault();
+
+  if (currentTool === 'pan' && isPanning) {
+    const t = e.touches[0];
+    panX = t.clientX - panStartX;
+    panY = t.clientY - panStartY;
+    applyTransform();
+    return;
+  }
+
+  if (currentTool === 'text' && pendingTextTap) {
+    const pos = getTouchPos(e);
+    const dx = pos.x - pendingTextTap.sx;
+    const dy = pos.y - pendingTextTap.sy;
+    if (Math.hypot(dx, dy) > 6) pendingTextTap = null;
+    return;
+  }
+
   if (currentTool === 'select' && isSelecting) {
     const pos = getTouchPos(e);
     const x = (pos.x - panX) / scale;
@@ -2111,6 +2177,17 @@ canvas.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 canvas.addEventListener('touchend', () => {
+  if (currentTool === 'pan' && isPanning) {
+    isPanning = false;
+    return;
+  }
+
+  if (currentTool === 'text' && pendingTextTap) {
+    handleTextInput(pendingTextTap.x, pendingTextTap.y, true);
+    pendingTextTap = null;
+    return;
+  }
+
   if (currentTool === 'select' && isSelecting) {
     const r = normalizeRect(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
     const w = r.maxX - r.minX;
@@ -2192,6 +2269,7 @@ canvas.addEventListener('touchend', () => {
     redrawCanvas();
   }
 
+  currentStrokeGroupId = null;
   drawing = false;
 });
 

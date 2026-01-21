@@ -45,6 +45,12 @@ let dragLastX = 0;
 let dragLastY = 0;
 let dragOriginals = new Map();
 
+let isResizingSelection = false;
+let resizeHandle = null;
+let resizeBoundsStart = null;
+let resizeAnchor = null;
+let resizeOriginals = new Map();
+
 const penButton = document.getElementById('pen-button');
 const selectButton = document.getElementById('select-button');
 const panButton = document.getElementById('pan-button');
@@ -241,6 +247,92 @@ function getSelectionBounds() {
   return bounds;
 }
 
+function getSelectionHandles(bounds) {
+  const cx = (bounds.minX + bounds.maxX) / 2;
+  const cy = (bounds.minY + bounds.maxY) / 2;
+  return [
+    { name: 'nw', x: bounds.minX, y: bounds.minY },
+    { name: 'ne', x: bounds.maxX, y: bounds.minY },
+    { name: 'sw', x: bounds.minX, y: bounds.maxY },
+    { name: 'se', x: bounds.maxX, y: bounds.maxY },
+    { name: 'n', x: cx, y: bounds.minY },
+    { name: 'e', x: bounds.maxX, y: cy },
+    { name: 's', x: cx, y: bounds.maxY },
+    { name: 'w', x: bounds.minX, y: cy }
+  ];
+}
+
+function getHandleHit(bounds, x, y) {
+  const size = 10 / Math.max(0.001, scale);
+  const half = size / 2;
+  const handles = getSelectionHandles(bounds);
+  for (const h of handles) {
+    if (x >= h.x - half && x <= h.x + half && y >= h.y - half && y <= h.y + half) return h.name;
+  }
+  return null;
+}
+
+function transformStroke(stroke, anchorX, anchorY, sx, sy) {
+  if (!stroke) return;
+
+  const tx = (v) => anchorX + (v - anchorX) * sx;
+  const ty = (v) => anchorY + (v - anchorY) * sy;
+  const uniform = (Math.abs(sx) + Math.abs(sy)) / 2;
+
+  if (stroke.type === 'fillRegion') {
+    const x1 = stroke.x;
+    const y1 = stroke.y;
+    const x2 = stroke.x + stroke.w;
+    const y2 = stroke.y + stroke.h;
+
+    const nx1 = tx(x1);
+    const ny1 = ty(y1);
+    const nx2 = tx(x2);
+    const ny2 = ty(y2);
+
+    stroke.x = Math.min(nx1, nx2);
+    stroke.y = Math.min(ny1, ny2);
+    stroke.w = Math.abs(nx2 - nx1);
+    stroke.h = Math.abs(ny2 - ny1);
+    return;
+  }
+
+  if (stroke.type === 'line' || stroke.type === 'rectangle' || stroke.type === 'arrow') {
+    stroke.startX = tx(stroke.startX);
+    stroke.startY = ty(stroke.startY);
+    stroke.endX = tx(stroke.endX);
+    stroke.endY = ty(stroke.endY);
+    if (typeof stroke.thickness === 'number') stroke.thickness = Math.max(1, stroke.thickness * uniform);
+    return;
+  }
+
+  if (stroke.type === 'circle') {
+    const dx = stroke.endX - stroke.startX;
+    const dy = stroke.endY - stroke.startY;
+    const ux = dx * uniform;
+    const uy = dy * uniform;
+    stroke.startX = tx(stroke.startX);
+    stroke.startY = ty(stroke.startY);
+    stroke.endX = stroke.startX + ux;
+    stroke.endY = stroke.startY + uy;
+    if (typeof stroke.thickness === 'number') stroke.thickness = Math.max(1, stroke.thickness * uniform);
+    return;
+  }
+
+  if (stroke.type === 'text') {
+    stroke.x = tx(stroke.x);
+    stroke.y = ty(stroke.y);
+    if (typeof stroke.size === 'number') stroke.size = Math.max(6, Math.round(stroke.size * uniform));
+    return;
+  }
+
+  if (typeof stroke.x === 'number') stroke.x = tx(stroke.x);
+  if (typeof stroke.y === 'number') stroke.y = ty(stroke.y);
+  if (typeof stroke.lastX === 'number') stroke.lastX = tx(stroke.lastX);
+  if (typeof stroke.lastY === 'number') stroke.lastY = ty(stroke.lastY);
+  if (typeof stroke.thickness === 'number') stroke.thickness = Math.max(1, stroke.thickness * uniform);
+}
+
 function drawSelectionOverlay() {
   const hasMarquee = isSelecting;
   const hasSelection = selectedStrokeIds.size > 0;
@@ -257,6 +349,19 @@ function drawSelectionOverlay() {
       ctx.setLineDash([6 / scale, 4 / scale]);
       ctx.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
       ctx.setLineDash([]);
+
+      const size = 10 / Math.max(0.001, scale);
+      const half = size / 2;
+      const handles = getSelectionHandles(b);
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#4d90fe';
+      ctx.lineWidth = 1 / Math.max(0.001, scale);
+      for (const h of handles) {
+        ctx.beginPath();
+        ctx.rect(h.x - half, h.y - half, size, size);
+        ctx.fill();
+        ctx.stroke();
+      }
     }
   }
 
@@ -808,6 +913,9 @@ function applyStrokeToLayer(stroke) {
   const layerId = stroke.layerId || currentLayerId;
   const lctx = getLayerContext(layerId);
 
+  lctx.save();
+  try {
+
   if (stroke.type === 'fill') {
     const screenX = Math.round(stroke.x * scale + panX);
     const screenY = Math.round(stroke.y * scale + panY);
@@ -909,8 +1017,10 @@ function applyStrokeToLayer(stroke) {
     
     if (stroke.isEraser) {
       lctx.globalCompositeOperation = 'destination-out';
+      lctx.globalAlpha = 1;
     } else {
       lctx.globalCompositeOperation = 'source-over';
+      lctx.globalAlpha = 1;
       lctx.strokeStyle = stroke.color;
     }
     
@@ -918,6 +1028,10 @@ function applyStrokeToLayer(stroke) {
     lctx.moveTo(stroke.lastX, stroke.lastY);
     lctx.lineTo(stroke.x, stroke.y);
     lctx.stroke();
+  }
+
+  } finally {
+    lctx.restore();
   }
 }
 
@@ -1092,6 +1206,9 @@ function setActiveTool(tool) {
     penButton.classList.add('active');
     isEraser = false;
     canvas.style.cursor = 'crosshair';
+    if (thicknessSlider) thicknessSlider.value = String(penThickness);
+    if (thicknessValue) thicknessValue.textContent = penThickness + 'px';
+    updateThicknessDot(penThickness);
   } else if (tool === 'eraser') {
     eraserButton.classList.add('active');
     isEraser = true;
@@ -1115,6 +1232,11 @@ function setActiveTool(tool) {
     selectedStrokeIds.clear();
     isDraggingSelection = false;
     dragOriginals.clear();
+    isResizingSelection = false;
+    resizeHandle = null;
+    resizeBoundsStart = null;
+    resizeAnchor = null;
+    resizeOriginals.clear();
   }
 }
 
@@ -1625,6 +1747,34 @@ function startDrawing(e) {
   if (currentTool === 'select') {
     if (selectedStrokeIds.size > 0) {
       const b = getSelectionBounds();
+      if (b) {
+        const handle = getHandleHit(b, x, y);
+        if (handle) {
+          isResizingSelection = true;
+          resizeHandle = handle;
+          resizeBoundsStart = { ...b };
+          resizeOriginals = new Map();
+          for (const id of selectedStrokeIds) {
+            const s = getStrokeById(id);
+            if (!s) continue;
+            resizeOriginals.set(id, deepClone(s));
+          }
+
+          if (handle === 'nw') resizeAnchor = { x: b.maxX, y: b.maxY };
+          else if (handle === 'ne') resizeAnchor = { x: b.minX, y: b.maxY };
+          else if (handle === 'sw') resizeAnchor = { x: b.maxX, y: b.minY };
+          else if (handle === 'se') resizeAnchor = { x: b.minX, y: b.minY };
+          else if (handle === 'n') resizeAnchor = { x: (b.minX + b.maxX) / 2, y: b.maxY };
+          else if (handle === 's') resizeAnchor = { x: (b.minX + b.maxX) / 2, y: b.minY };
+          else if (handle === 'w') resizeAnchor = { x: b.maxX, y: (b.minY + b.maxY) / 2 };
+          else if (handle === 'e') resizeAnchor = { x: b.minX, y: (b.minY + b.maxY) / 2 };
+          return;
+        }
+      }
+    }
+
+    if (selectedStrokeIds.size > 0) {
+      const b = getSelectionBounds();
       if (b && rectContainsPoint(expandRect(b, 4 / Math.max(0.001, scale)), x, y)) {
         isDraggingSelection = true;
         dragLastX = x;
@@ -1710,6 +1860,51 @@ function draw(e) {
       rebuildAllLayers();
       redrawCanvas();
     }
+    return;
+  }
+
+  if (currentTool === 'select' && isResizingSelection) {
+    const x = (e.offsetX - panX) / scale;
+    const y = (e.offsetY - panY) / scale;
+    const b = resizeBoundsStart;
+    const anchor = resizeAnchor;
+    if (!b || !anchor) return;
+
+    const minSize = 8 / Math.max(0.001, scale);
+    const ow = Math.max(minSize, b.maxX - b.minX);
+    const oh = Math.max(minSize, b.maxY - b.minY);
+
+    let nx1 = b.minX;
+    let ny1 = b.minY;
+    let nx2 = b.maxX;
+    let ny2 = b.maxY;
+
+    if (resizeHandle === 'nw') { nx1 = x; ny1 = y; }
+    else if (resizeHandle === 'ne') { nx2 = x; ny1 = y; }
+    else if (resizeHandle === 'sw') { nx1 = x; ny2 = y; }
+    else if (resizeHandle === 'se') { nx2 = x; ny2 = y; }
+    else if (resizeHandle === 'n') { ny1 = y; }
+    else if (resizeHandle === 's') { ny2 = y; }
+    else if (resizeHandle === 'w') { nx1 = x; }
+    else if (resizeHandle === 'e') { nx2 = x; }
+
+    const nb = normalizeRect(nx1, ny1, nx2, ny2);
+    const nw = Math.max(minSize, nb.maxX - nb.minX);
+    const nh = Math.max(minSize, nb.maxY - nb.minY);
+
+    const sx = nw / ow;
+    const sy = nh / oh;
+
+    for (const id of selectedStrokeIds) {
+      const target = getStrokeById(id);
+      const snap = resizeOriginals.get(id);
+      if (!target || !snap) continue;
+      restoreStrokeState(target, snap);
+      transformStroke(target, anchor.x, anchor.y, sx, sy);
+    }
+
+    rebuildAllLayers();
+    redrawCanvas();
     return;
   }
   
@@ -1824,6 +2019,36 @@ function stopDrawing(e) {
     redrawCanvas();
     return;
   }
+
+  if (currentTool === 'select' && isResizingSelection) {
+    const moved = [];
+    for (const id of selectedStrokeIds) {
+      const before = resizeOriginals.get(id);
+      const afterStroke = getStrokeById(id);
+      if (!before || !afterStroke) continue;
+      moved.push({ id, before: deepClone(before), after: deepClone(afterStroke) });
+    }
+
+    if (moved.length) {
+      strokes.push({
+        id: generateId('move'),
+        type: 'moveAction',
+        moved
+      });
+      redoStack = [];
+      saveToStorage();
+    }
+
+    isResizingSelection = false;
+    resizeHandle = null;
+    resizeBoundsStart = null;
+    resizeAnchor = null;
+    resizeOriginals.clear();
+
+    rebuildAllLayers();
+    redrawCanvas();
+    return;
+  }
   
   if (!drawing) return;
   
@@ -1900,6 +2125,7 @@ canvas.addEventListener('mouseup', stopDrawing);
 canvas.addEventListener('mouseout', stopDrawing);
 
 function saveStroke(x, y, lastX, lastY) {
+  const thickness = isEraser ? eraserThickness : penThickness;
   const stroke = {
     id: generateId('stroke'),
     type: currentTool,
@@ -1909,7 +2135,7 @@ function saveStroke(x, y, lastX, lastY) {
     lastY: lastY,
     groupId: currentStrokeGroupId,
     color: penColor,
-    thickness: isEraser ? eraserThickness : penThickness,
+    thickness: thickness,
     isEraser: isEraser,
     layerId: currentLayerId
   };
@@ -2037,6 +2263,34 @@ canvas.addEventListener('touchstart', (e) => {
   if (currentTool === 'select') {
     if (selectedStrokeIds.size > 0) {
       const b = getSelectionBounds();
+      if (b) {
+        const handle = getHandleHit(b, x, y);
+        if (handle) {
+          isResizingSelection = true;
+          resizeHandle = handle;
+          resizeBoundsStart = { ...b };
+          resizeOriginals = new Map();
+          for (const id of selectedStrokeIds) {
+            const s = getStrokeById(id);
+            if (!s) continue;
+            resizeOriginals.set(id, deepClone(s));
+          }
+
+          if (handle === 'nw') resizeAnchor = { x: b.maxX, y: b.maxY };
+          else if (handle === 'ne') resizeAnchor = { x: b.minX, y: b.maxY };
+          else if (handle === 'sw') resizeAnchor = { x: b.maxX, y: b.minY };
+          else if (handle === 'se') resizeAnchor = { x: b.minX, y: b.minY };
+          else if (handle === 'n') resizeAnchor = { x: (b.minX + b.maxX) / 2, y: b.maxY };
+          else if (handle === 's') resizeAnchor = { x: (b.minX + b.maxX) / 2, y: b.minY };
+          else if (handle === 'w') resizeAnchor = { x: b.maxX, y: (b.minY + b.maxY) / 2 };
+          else if (handle === 'e') resizeAnchor = { x: b.minX, y: (b.minY + b.maxY) / 2 };
+          return;
+        }
+      }
+    }
+
+    if (selectedStrokeIds.size > 0) {
+      const b = getSelectionBounds();
       if (b && rectContainsPoint(expandRect(b, 6 / Math.max(0.001, scale)), x, y)) {
         isDraggingSelection = true;
         dragLastX = x;
@@ -2134,6 +2388,52 @@ canvas.addEventListener('touchmove', (e) => {
       rebuildAllLayers();
       redrawCanvas();
     }
+    return;
+  }
+
+  if (currentTool === 'select' && isResizingSelection) {
+    const pos = getTouchPos(e);
+    const x = (pos.x - panX) / scale;
+    const y = (pos.y - panY) / scale;
+    const b = resizeBoundsStart;
+    const anchor = resizeAnchor;
+    if (!b || !anchor) return;
+
+    const minSize = 8 / Math.max(0.001, scale);
+    const ow = Math.max(minSize, b.maxX - b.minX);
+    const oh = Math.max(minSize, b.maxY - b.minY);
+
+    let nx1 = b.minX;
+    let ny1 = b.minY;
+    let nx2 = b.maxX;
+    let ny2 = b.maxY;
+
+    if (resizeHandle === 'nw') { nx1 = x; ny1 = y; }
+    else if (resizeHandle === 'ne') { nx2 = x; ny1 = y; }
+    else if (resizeHandle === 'sw') { nx1 = x; ny2 = y; }
+    else if (resizeHandle === 'se') { nx2 = x; ny2 = y; }
+    else if (resizeHandle === 'n') { ny1 = y; }
+    else if (resizeHandle === 's') { ny2 = y; }
+    else if (resizeHandle === 'w') { nx1 = x; }
+    else if (resizeHandle === 'e') { nx2 = x; }
+
+    const nb = normalizeRect(nx1, ny1, nx2, ny2);
+    const nw = Math.max(minSize, nb.maxX - nb.minX);
+    const nh = Math.max(minSize, nb.maxY - nb.minY);
+
+    const sx = nw / ow;
+    const sy = nh / oh;
+
+    for (const id of selectedStrokeIds) {
+      const target = getStrokeById(id);
+      const snap = resizeOriginals.get(id);
+      if (!target || !snap) continue;
+      restoreStrokeState(target, snap);
+      transformStroke(target, anchor.x, anchor.y, sx, sy);
+    }
+
+    rebuildAllLayers();
+    redrawCanvas();
     return;
   }
 
@@ -2243,6 +2543,36 @@ canvas.addEventListener('touchend', () => {
 
     isDraggingSelection = false;
     dragOriginals.clear();
+    rebuildAllLayers();
+    redrawCanvas();
+    return;
+  }
+
+  if (currentTool === 'select' && isResizingSelection) {
+    const moved = [];
+    for (const id of selectedStrokeIds) {
+      const before = resizeOriginals.get(id);
+      const afterStroke = getStrokeById(id);
+      if (!before || !afterStroke) continue;
+      moved.push({ id, before: deepClone(before), after: deepClone(afterStroke) });
+    }
+
+    if (moved.length) {
+      strokes.push({
+        id: generateId('move'),
+        type: 'moveAction',
+        moved
+      });
+      redoStack = [];
+      saveToStorage();
+    }
+
+    isResizingSelection = false;
+    resizeHandle = null;
+    resizeBoundsStart = null;
+    resizeAnchor = null;
+    resizeOriginals.clear();
+
     rebuildAllLayers();
     redrawCanvas();
     return;

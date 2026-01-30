@@ -33,8 +33,8 @@ SketchSpace is a browser-based whiteboard with drawing, shapes, text, layers, pa
 - Selection operations (move/resize) are recorded so undo/redo stays consistent.
 
 ## Project structure
-- sketchspace-react/: Vite + React version.
-- OLD/: Original static implementation (HTML/CSS/JS).
+- `sketchspace-react/`: Vite + React version.
+- `OLD/`: Original static implementation (HTML/CSS/JS).
 
 ## AI Declaration
 AI was used during the production of this project, but only to help me learn (especially when I was trying to refactor everything over to React) or when I desperately could not find the source of an error/debug to nudge me in the right direction.

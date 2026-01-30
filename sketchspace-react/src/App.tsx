@@ -1,0 +1,253 @@
+import { useEffect } from 'react'
+import './App.css'
+import { initWhiteboard } from './whiteboard'
+import logo from './assets/logo.png'
+
+function App() {
+  useEffect(() => {
+    const cleanup = initWhiteboard()
+    return cleanup
+  }, [])
+
+  return (
+    <>
+      <div id="sidebar">
+        <div id="sidebar-header">
+          <div id="logo" aria-label="SketchSpace">
+            <img src={logo} width={36} height={36} alt="SketchSpace" />
+          </div>
+        </div>
+
+        <div id="sidebar-scroll">
+          <div className="tools-section">
+            <div className="section-title">Tools</div>
+
+            <button className="tool-button" id="select-button" title="Select">
+              <svg viewBox="0 0 24 24">
+                <path d="M3 2l7.5 18 2-7.5L20 10 3 2z" />
+              </svg>
+            </button>
+
+            <button className="tool-button" id="pan-button" title="Pan">
+              <svg viewBox="0 0 24 24">
+                <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M7 11V6.5a1.5 1.5 0 0 1 3 0V10" />
+                <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M10 10V5.5a1.5 1.5 0 0 1 3 0V10" />
+                <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M13 10V6a1.5 1.5 0 0 1 3 0v6" />
+                <path fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M16 12V7.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6H10a5 5 0 0 1-5-5v-1.5a1.5 1.5 0 0 1 3 0V14" />
+              </svg>
+            </button>
+
+            <button className="tool-button active" id="pen-button" title="Pen">
+              <svg viewBox="0 0 24 24">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" />
+              </svg>
+            </button>
+
+            <button className="tool-button" id="eraser-button" title="Eraser">
+              <svg viewBox="0 0 16 16">
+                <path d="M8.086 2.207a2 2 0 0 1 2.828 0l3.879 3.879a2 2 0 0 1 0 2.828l-5.5 5.5A2 2 0 0 1 7.879 15H5.12a2 2 0 0 1-1.414-.586l-2.5-2.5a2 2 0 0 1 0-2.828zm.66 11.34L3.453 8.254 1.914 9.793a1 1 0 0 0 0 1.414l2.5 2.5a1 1 0 0 0 .707.293H7.88a1 1 0 0 0 .707-.293z" />
+              </svg>
+            </button>
+
+            <button className="tool-button" id="text-button" title="Text">
+              <svg viewBox="0 0 24 24">
+                <path d="M5 4v3h5.5v12h3V7H19V4z" />
+              </svg>
+            </button>
+
+            <button className="tool-button" id="fill-button" title="Fill">
+              <svg viewBox="0 0 16 16">
+                <path d="M6.192 2.78c-.458-.677-.927-1.248-1.35-1.643a3 3 0 0 0-.71-.515c-.217-.104-.56-.205-.882-.02-.367.213-.427.63-.43.896-.003.304.064.664.173 1.044.196.687.556 1.528 1.035 2.402L.752 8.22c-.277.277-.269.656-.218.918.055.283.187.593.36.903.348.627.92 1.361 1.626 2.068.707.707 1.441 1.278 2.068 1.626.31.173.62.305.903.36.262.05.64.059.918-.218l5.615-5.615c.118.257.092.512.05.939-.03.292-.068.665-.073 1.176v.123h.003a1 1 0 0 0 1.993 0H14v-.057a1 1 0 0 0-.004-.117c-.055-1.25-.7-2.738-1.86-3.494a4 4 0 0 0-.211-.434c-.349-.626-.92-1.36-1.627-2.067S8.857 3.052 8.23 2.704c-.31-.172-.62-.304-.903-.36-.262-.05-.64-.058-.918.219zM4.16 1.867c.381.356.844.922 1.311 1.632l-.704.705c-.382-.727-.66-1.402-.813-1.938a3.3 3.3 0 0 1-.131-.673q.137.09.337.274m.394 3.965c.54.852 1.107 1.567 1.607 2.033a.5.5 0 1 0 .682-.732c-.453-.422-1.017-1.136-1.564-2.027l1.088-1.088q.081.181.183.365c.349.627.92 1.361 1.627 2.068.706.707 1.44 1.278 2.068 1.626q.183.103.365.183l-4.861 4.862-.068-.01c-.137-.027-.342-.104-.608-.252-.524-.292-1.186-.8-1.846-1.46s-1.168-1.32-1.46-1.846c-.147-.265-.225-.47-.251-.607l-.01-.068zm2.87-1.935a2.4 2.4 0 0 1-.241-.561c.135.033.324.11.562.241.524.292 1.186.8 1.846 1.46.45.45.83.901 1.118 1.31a3.5 3 0 0 0-1.066.091 11 11 0 0 1-.76-.694c-.66-.660-1.167-1.322-1.458-1.847z" />
+              </svg>
+            </button>
+
+            <button className="tool-button" id="shapes-button" title="Shapes">
+              <svg viewBox="0 0 24 24">
+                <rect x="4" y="5" width="9" height="9" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+                <circle cx="16.75" cy="8.25" r="3.25" fill="none" stroke="currentColor" strokeWidth="2" />
+                <path d="M12 22l-4.5-6h9z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            <div className="shapes-popup" id="shapes-popup">
+              <div className="popup-title">Shapes</div>
+              <button className="tool-button" id="shape-line" title="Line">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2">
+                  <path d="M3 3L21 21" />
+                </svg>
+              </button>
+              <button className="tool-button" id="shape-rectangle" title="Rectangle">
+                <svg viewBox="0 0 24 24">
+                  <path d="M3 5v14h18V5H3z" />
+                </svg>
+              </button>
+              <button className="tool-button" id="shape-circle" title="Circle">
+                <svg viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="8" />
+                </svg>
+              </button>
+              <button className="tool-button" id="shape-arrow" title="Arrow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 12h16m-7-7l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
+
+            <button className="tool-button" id="layers-button" title="Layers">
+              <svg viewBox="0 0 16 16">
+                <path d="M8.235 1.559a.5.5 0 0 0-.47 0l-7.5 4a.5.5 0 0 0 0 .882L3.188 8 .264 9.559a.5.5 0 0 0 0 .882l7.5 4a.5.5 0 0 0 .47 0l7.5-4a.5.5 0 0 0 0-.882L12.813 8l2.922-1.559a.5.5 0 0 0 0-.882zm3.515 7.008L14.438 10 8 13.433 1.562 10 4.25 8.567l3.515 1.874a.5.5 0 0 0 .47 0zM8 9.433 1.562 6 8 2.567 14.438 6z" />
+              </svg>
+            </button>
+
+            <div className="layers-popup" id="layers-popup">
+              <div className="popup-title">Layers</div>
+              <div className="popup-list" id="layers-list"></div>
+              <button className="popup-action" id="add-layer-button">Add Layer</button>
+            </div>
+
+            <button className="tool-button" id="pages-button" title="Canvases">
+              <svg viewBox="0 0 16 16">
+                <path d="M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1zm2-2a.5.5 0 0 1 0-1h7a.5.5 0 0 1 0 1zM0 13a1.5 1.5 0 0 0 1.5 1.5h13A1.5 1.5 0 0 0 16 13V6a1.5 1.5 0 0 0-1.5-1.5h-13A1.5 1.5 0 0 0 0 6zm1.5.5A.5.5 0 0 1 1 13V6a.5.5 0 0 1 .5-.5h13a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5z" />
+              </svg>
+            </button>
+
+            <div className="pages-popup" id="pages-popup">
+              <div className="popup-title">Canvases</div>
+              <div className="popup-list" id="pages-list"></div>
+              <button className="popup-action" id="add-page-button">New Canvas</button>
+            </div>
+
+            <div className="color-picker-wrapper">
+              <input type="color" id="color-picker" defaultValue="#000000" title="Color" />
+            </div>
+
+            <div className="thickness-container">
+              <div className="thickness-preview">
+                <div className="thickness-dot" id="thickness-dot"></div>
+              </div>
+
+              <div className="thickness-popup">
+                <div className="popup-title">Pen Thickness</div>
+                <input type="range" id="thickness-slider" className="thickness-slider" min="1" max="20" defaultValue="5" />
+                <div className="thickness-value" id="thickness-value">5px</div>
+              </div>
+            </div>
+
+            <div className="eraser-thickness-container">
+              <div className="eraser-thickness-preview">
+                <div className="eraser-thickness-dot" id="eraser-thickness-dot"></div>
+              </div>
+              <div className="eraser-thickness-popup">
+                <div className="popup-title">Eraser Thickness</div>
+                <input type="range" id="eraser-thickness-slider" className="thickness-slider" min="5" max="50" defaultValue="20" />
+                <div className="thickness-value" id="eraser-thickness-value">20px</div>
+              </div>
+            </div>
+
+            <div className="text-size-container">
+              <div className="text-size-preview">
+                <svg viewBox="0 0 24 24" width="20" height="20">
+                  <path fill="currentColor" d="M5 4v3h5.5v12h3V7H19V4z" />
+                </svg>
+              </div>
+              <div className="text-size-popup">
+                <div className="popup-title">Text Size</div>
+                <input type="range" id="text-size-slider" className="thickness-slider" min="12" max="72" defaultValue="24" />
+                <div className="thickness-value" id="text-size-value">24px</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="tools-section">
+            <div className="section-title">Actions</div>
+
+            <button className="tool-button" id="undo-button" title="Undo">
+              <svg viewBox="0 0 24 24">
+                <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z" />
+              </svg>
+            </button>
+
+            <button className="tool-button" id="redo-button" title="Redo">
+              <svg viewBox="0 0 24 24">
+                <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z" />
+              </svg>
+            </button>
+
+            <button className="tool-button" id="export-button" title="Export">
+              <svg viewBox="0 0 24 24">
+                <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" />
+              </svg>
+            </button>
+
+            <button className="tool-button" id="clear-button" title="Clear">
+              <svg viewBox="0 0 24 24">
+                <path d="M19 4h-3.5l-1-1h-5l-1 1H5v2h14M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12z" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="tools-section">
+            <div className="section-title">Help</div>
+
+            <button className="tool-button" id="info-button" title="Info">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="whiteboard"></canvas>
+
+      <div id="zoom-controls">
+        <button className="zoom-btn" id="zoom-out" title="Zoom Out">-</button>
+        <div id="zoom-value">100%</div>
+        <button className="zoom-btn" id="zoom-in" title="Zoom In">+</button>
+      </div>
+
+      <div id="text-input-overlay" style={{ display: 'none', position: 'fixed', zIndex: 150 }}>
+        <input
+          type="text"
+          id="text-input"
+          style={{ border: '2px solid #4d90fe', padding: '8px 12px', fontFamily: 'Arial', outline: 'none', background: 'white', borderRadius: '4px', minWidth: '200px' }}
+        />
+      </div>
+
+      <div id="info-modal" className="modal">
+        <div className="modal-content">
+          <span className="close-button">&times;</span>
+          <h2>SketchSpace</h2>
+          <p>A browser-based whiteboard tool.</p>
+          <p><strong>Keyboard Shortcuts:</strong></p>
+          <ul>
+            <li><strong>S</strong> - Select Tool</li>
+            <li><strong>P</strong> - Pen Tool</li>
+            <li><strong>E</strong> - Eraser Tool</li>
+            <li><strong>T</strong> - Text Tool</li>
+            <li><strong>F</strong> - Fill Bucket Tool</li>
+            <li><strong>L</strong> - Line Tool</li>
+            <li><strong>R</strong> - Rectangle Tool</li>
+            <li><strong>O</strong> - Circle Tool</li>
+            <li><strong>A</strong> - Arrow Tool</li>
+            <li><strong>C</strong> - Clear Canvas</li>
+            <li><strong>Ctrl+Z</strong> - Undo</li>
+            <li><strong>Ctrl+Y</strong> - Redo</li>
+            <li><strong>Ctrl/Cmd+C</strong> - Copy Selection</li>
+            <li><strong>Ctrl/Cmd+V</strong> - Paste Selection</li>
+            <li><strong>Mouse Wheel</strong> - Zoom In/Out</li>
+            <li><strong>Space + Drag</strong> - Pan Canvas</li>
+          </ul>
+          <p>Created by Armaan Johar</p>
+          <a href="https://github.com/Armaaneee" target="_blank" rel="noreferrer" className="github-link">
+            <svg height="32" width="32" viewBox="0 0 16 16">
+              <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"></path>
+            </svg>
+          </a>
+        </div>
+      </div>
+    </>
+  )
+}
+
+export default App

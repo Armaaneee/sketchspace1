@@ -1,0 +1,2657 @@
+export function initWhiteboard() {
+  const canvas = document.getElementById('whiteboard') as HTMLCanvasElement;
+  if (!canvas) return () => {};
+
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  if (!ctx) return () => {};
+
+  const penButton = document.getElementById('pen-button') as HTMLButtonElement | null;
+  const selectButton = document.getElementById('select-button') as HTMLButtonElement | null;
+  const panButton = document.getElementById('pan-button') as HTMLButtonElement | null;
+  const eraserButton = document.getElementById('eraser-button') as HTMLButtonElement | null;
+  const textButton = document.getElementById('text-button') as HTMLButtonElement | null;
+  const fillButton = document.getElementById('fill-button') as HTMLButtonElement | null;
+  const shapesButton = document.getElementById('shapes-button') as HTMLButtonElement | null;
+  const shapesPopup = document.getElementById('shapes-popup') as HTMLDivElement | null;
+  const shapeLineButton = document.getElementById('shape-line') as HTMLButtonElement | null;
+  const shapeRectangleButton = document.getElementById('shape-rectangle') as HTMLButtonElement | null;
+  const shapeCircleButton = document.getElementById('shape-circle') as HTMLButtonElement | null;
+  const shapeArrowButton = document.getElementById('shape-arrow') as HTMLButtonElement | null;
+  const colorPicker = document.getElementById('color-picker') as HTMLInputElement | null;
+  const thicknessSlider = document.getElementById('thickness-slider') as HTMLInputElement | null;
+  const thicknessValue = document.getElementById('thickness-value') as HTMLDivElement | null;
+  const thicknessDot = document.getElementById('thickness-dot') as HTMLDivElement | null;
+  const thicknessPreview = document.querySelector('.thickness-preview') as HTMLDivElement | null;
+  const thicknessPopup = document.querySelector('.thickness-popup') as HTMLDivElement | null;
+  const eraserThicknessSlider = document.getElementById('eraser-thickness-slider') as HTMLInputElement | null;
+  const eraserThicknessValue = document.getElementById('eraser-thickness-value') as HTMLDivElement | null;
+  const eraserThicknessDot = document.getElementById('eraser-thickness-dot') as HTMLDivElement | null;
+  const eraserThicknessPreview = document.querySelector('.eraser-thickness-preview') as HTMLDivElement | null;
+  const eraserThicknessPopup = document.querySelector('.eraser-thickness-popup') as HTMLDivElement | null;
+  const textSizeSlider = document.getElementById('text-size-slider') as HTMLInputElement | null;
+  const textSizeValue = document.getElementById('text-size-value') as HTMLDivElement | null;
+  const textSizePreview = document.querySelector('.text-size-preview') as HTMLDivElement | null;
+  const textSizePopup = document.querySelector('.text-size-popup') as HTMLDivElement | null;
+  const textInputOverlay = document.getElementById('text-input-overlay') as HTMLDivElement | null;
+  const textInput = document.getElementById('text-input') as HTMLInputElement | null;
+  const clearButton = document.getElementById('clear-button') as HTMLButtonElement | null;
+  const undoButton = document.getElementById('undo-button') as HTMLButtonElement | null;
+  const redoButton = document.getElementById('redo-button') as HTMLButtonElement | null;
+  const exportButton = document.getElementById('export-button') as HTMLButtonElement | null;
+  const infoButton = document.getElementById('info-button') as HTMLButtonElement | null;
+  const infoModal = document.getElementById('info-modal') as HTMLDivElement | null;
+  const closeButton = document.querySelector('.close-button') as HTMLSpanElement | null;
+
+  const layersButton = document.getElementById('layers-button') as HTMLButtonElement | null;
+  const layersPopup = document.getElementById('layers-popup') as HTMLDivElement | null;
+  const layersList = document.getElementById('layers-list') as HTMLDivElement | null;
+  const addLayerButton = document.getElementById('add-layer-button') as HTMLButtonElement | null;
+
+  const pagesButton = document.getElementById('pages-button') as HTMLButtonElement | null;
+  const pagesPopup = document.getElementById('pages-popup') as HTMLDivElement | null;
+  const pagesList = document.getElementById('pages-list') as HTMLDivElement | null;
+  const addPageButton = document.getElementById('add-page-button') as HTMLButtonElement | null;
+
+  const zoomValue = document.getElementById('zoom-value') as HTMLDivElement | null;
+  const zoomInButton = document.getElementById('zoom-in') as HTMLButtonElement | null;
+  const zoomOutButton = document.getElementById('zoom-out') as HTMLButtonElement | null;
+
+  const ZOOM_STEP = 0.1;
+
+  type Stroke = Record<string, any>;
+  type Layer = { id: string; name: string; visible: boolean };
+  type Page = {
+    id: string;
+    name: string;
+    strokes: Stroke[];
+    redoStack: any[];
+    layers: Layer[];
+    currentLayerId: string | null;
+    scale: number;
+    panX: number;
+    panY: number;
+  };
+
+  let drawing = false;
+  let lastX = 0;
+  let lastY = 0;
+  let isEraser = false;
+  let penColor = '#000000';
+  let penThickness = 5;
+  let eraserThickness = 20;
+  let textSize = 24;
+  let strokes: Stroke[] = [];
+  let redoStack: any[] = [];
+  let currentTool: string = 'pen';
+  let shapeStartX = 0;
+  let shapeStartY = 0;
+  let isDrawingShape = false;
+  let scale = 1;
+  let panX = 0;
+  let panY = 0;
+  let isPanning = false;
+  let panStartX = 0;
+  let panStartY = 0;
+  let spacePressed = false;
+  let currentStrokeGroupId: string | null = null;
+
+  let layers: Layer[] = [];
+  let currentLayerId: string | null = null;
+  let pages: Page[] = [];
+  let currentPageIndex = 0;
+  let layerCanvases: Record<string, HTMLCanvasElement> = {};
+
+  let isSelecting = false;
+  let selectionStartX = 0;
+  let selectionStartY = 0;
+  let selectionEndX = 0;
+  let selectionEndY = 0;
+  let selectedStrokeIds = new Set<string>();
+  let selectionClipboard: { strokes: Stroke[]; bounds: any } | null = null;
+  let pasteCount = 0;
+
+  let isDraggingSelection = false;
+  let dragLastX = 0;
+  let dragLastY = 0;
+  let dragOriginals = new Map<string, Stroke>();
+
+  let isResizingSelection = false;
+  let resizeHandle: string | null = null;
+  let resizeBoundsStart: any = null;
+  let resizeAnchor: { x: number; y: number } | null = null;
+  let resizeOriginals = new Map<string, Stroke>();
+
+  const cleanup: Array<() => void> = [];
+  const on = (
+    target: EventTarget | null,
+    type: string,
+    handler: (event: any) => void,
+    options?: AddEventListenerOptions | boolean
+  ) => {
+    if (!target) return;
+    const listener = handler as EventListener;
+    target.addEventListener(type, listener, options);
+    cleanup.push(() => target.removeEventListener(type, listener, options));
+  };
+
+  function clamp(value: number, min: number, max: number) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function updateZoomUI() {
+    if (!zoomValue) return;
+    zoomValue.textContent = Math.round(scale * 10) * 10 + '%';
+  }
+
+  function zoomTo(newScale: number, anchorX: number, anchorY: number) {
+    const snapped = Math.round(newScale / ZOOM_STEP) * ZOOM_STEP;
+    const clamped = clamp(snapped, 0.1, 5);
+    const worldX = (anchorX - panX) / scale;
+    const worldY = (anchorY - panY) / scale;
+
+    scale = clamped;
+    panX = anchorX - worldX * scale;
+    panY = anchorY - worldY * scale;
+
+    applyTransform();
+    updateZoomUI();
+  }
+
+  function generateId(prefix: string) {
+    return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  }
+
+  function ensureStrokeId(stroke: Stroke) {
+    if (!stroke.id) stroke.id = generateId('stroke');
+    return stroke.id;
+  }
+
+  function deepClone<T>(value: T): T {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function normalizeRect(x1: number, y1: number, x2: number, y2: number) {
+    return {
+      minX: Math.min(x1, x2),
+      minY: Math.min(y1, y2),
+      maxX: Math.max(x1, x2),
+      maxY: Math.max(y1, y2)
+    };
+  }
+
+  function rectIntersects(a: any, b: any) {
+    return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+  }
+
+  function rectContainsPoint(rect: any, x: number, y: number) {
+    return x >= rect.minX && x <= rect.maxX && y >= rect.minY && y <= rect.maxY;
+  }
+
+  function expandRect(rect: any, padding: number) {
+    return {
+      minX: rect.minX - padding,
+      minY: rect.minY - padding,
+      maxX: rect.maxX + padding,
+      maxY: rect.maxY + padding
+    };
+  }
+
+  function getStrokeBounds(stroke: Stroke) {
+    if (!stroke || stroke.type === 'fill') return null;
+
+    if (stroke.type === 'moveAction') return null;
+
+    if (stroke.type === 'deleteAction') return null;
+
+    if (stroke.type === 'line' || stroke.type === 'rectangle' || stroke.type === 'circle' || stroke.type === 'arrow') {
+      if (stroke.type === 'circle') {
+        const r = Math.sqrt(Math.pow(stroke.endX - stroke.startX, 2) + Math.pow(stroke.endY - stroke.startY, 2));
+        const circleRect = {
+          minX: stroke.startX - r,
+          minY: stroke.startY - r,
+          maxX: stroke.startX + r,
+          maxY: stroke.startY + r
+        };
+        return expandRect(circleRect, Math.max(2, (stroke.thickness || 3) / 2));
+      }
+
+      const base = normalizeRect(stroke.startX, stroke.startY, stroke.endX, stroke.endY);
+      return expandRect(base, Math.max(2, (stroke.thickness || 3) / 2));
+    }
+
+    if (stroke.type === 'text') {
+      ctx.save();
+      ctx.font = `${stroke.size || 24}px Arial`;
+      const width = ctx.measureText(stroke.text || '').width || 0;
+      ctx.restore();
+
+      const size = stroke.size || 24;
+      const rect = {
+        minX: stroke.x,
+        minY: stroke.y - size,
+        maxX: stroke.x + width,
+        maxY: stroke.y
+      };
+      return expandRect(rect, 2);
+    }
+
+    if (stroke.type === 'fillRegion') {
+      if (typeof stroke.x !== 'number' || typeof stroke.y !== 'number' || typeof stroke.w !== 'number' || typeof stroke.h !== 'number') return null;
+      return expandRect(
+        {
+          minX: stroke.x,
+          minY: stroke.y,
+          maxX: stroke.x + stroke.w,
+          maxY: stroke.y + stroke.h
+        },
+        1 / Math.max(0.001, scale)
+      );
+    }
+
+    if (
+      typeof stroke.x === 'number' &&
+      typeof stroke.y === 'number' &&
+      typeof stroke.lastX === 'number' &&
+      typeof stroke.lastY === 'number'
+    ) {
+      const base = normalizeRect(stroke.x, stroke.y, stroke.lastX, stroke.lastY);
+      return expandRect(base, Math.max(2, (stroke.thickness || 3) / 2));
+    }
+
+    return null;
+  }
+
+  function getSelectionBounds() {
+    const selected = strokes.filter(s => selectedStrokeIds.has(s.id));
+    let bounds: any = null;
+    for (const s of selected) {
+      const b = getStrokeBounds(s);
+      if (!b) continue;
+      if (!bounds) {
+        bounds = { ...b };
+      } else {
+        bounds.minX = Math.min(bounds.minX, b.minX);
+        bounds.minY = Math.min(bounds.minY, b.minY);
+        bounds.maxX = Math.max(bounds.maxX, b.maxX);
+        bounds.maxY = Math.max(bounds.maxY, b.maxY);
+      }
+    }
+    return bounds;
+  }
+
+  function getSelectionHandles(bounds: any) {
+    const cx = (bounds.minX + bounds.maxX) / 2;
+    const cy = (bounds.minY + bounds.maxY) / 2;
+    return [
+      { name: 'nw', x: bounds.minX, y: bounds.minY },
+      { name: 'ne', x: bounds.maxX, y: bounds.minY },
+      { name: 'sw', x: bounds.minX, y: bounds.maxY },
+      { name: 'se', x: bounds.maxX, y: bounds.maxY },
+      { name: 'n', x: cx, y: bounds.minY },
+      { name: 'e', x: bounds.maxX, y: cy },
+      { name: 's', x: cx, y: bounds.maxY },
+      { name: 'w', x: bounds.minX, y: cy }
+    ];
+  }
+
+  function getHandleHit(bounds: any, x: number, y: number) {
+    const size = 10 / Math.max(0.001, scale);
+    const half = size / 2;
+    const handles = getSelectionHandles(bounds);
+    for (const h of handles) {
+      if (x >= h.x - half && x <= h.x + half && y >= h.y - half && y <= h.y + half) return h.name;
+    }
+    return null;
+  }
+
+  function transformStroke(stroke: Stroke, anchorX: number, anchorY: number, sx: number, sy: number) {
+    if (!stroke) return;
+
+    const tx = (v: number) => anchorX + (v - anchorX) * sx;
+    const ty = (v: number) => anchorY + (v - anchorY) * sy;
+    const uniform = (Math.abs(sx) + Math.abs(sy)) / 2;
+
+    if (stroke.type === 'fillRegion') {
+      const x1 = stroke.x;
+      const y1 = stroke.y;
+      const x2 = stroke.x + stroke.w;
+      const y2 = stroke.y + stroke.h;
+
+      const nx1 = tx(x1);
+      const ny1 = ty(y1);
+      const nx2 = tx(x2);
+      const ny2 = ty(y2);
+
+      stroke.x = Math.min(nx1, nx2);
+      stroke.y = Math.min(ny1, ny2);
+      stroke.w = Math.abs(nx2 - nx1);
+      stroke.h = Math.abs(ny2 - ny1);
+      return;
+    }
+
+    if (stroke.type === 'line' || stroke.type === 'rectangle' || stroke.type === 'arrow') {
+      stroke.startX = tx(stroke.startX);
+      stroke.startY = ty(stroke.startY);
+      stroke.endX = tx(stroke.endX);
+      stroke.endY = ty(stroke.endY);
+      if (typeof stroke.thickness === 'number') stroke.thickness = Math.max(1, stroke.thickness * uniform);
+      return;
+    }
+
+    if (stroke.type === 'circle') {
+      const dx = stroke.endX - stroke.startX;
+      const dy = stroke.endY - stroke.startY;
+      const ux = dx * uniform;
+      const uy = dy * uniform;
+      stroke.startX = tx(stroke.startX);
+      stroke.startY = ty(stroke.startY);
+      stroke.endX = stroke.startX + ux;
+      stroke.endY = stroke.startY + uy;
+      if (typeof stroke.thickness === 'number') stroke.thickness = Math.max(1, stroke.thickness * uniform);
+      return;
+    }
+
+    if (stroke.type === 'text') {
+      stroke.x = tx(stroke.x);
+      stroke.y = ty(stroke.y);
+      if (typeof stroke.size === 'number') stroke.size = Math.max(6, Math.round(stroke.size * uniform));
+      return;
+    }
+
+    if (typeof stroke.x === 'number') stroke.x = tx(stroke.x);
+    if (typeof stroke.y === 'number') stroke.y = ty(stroke.y);
+    if (typeof stroke.lastX === 'number') stroke.lastX = tx(stroke.lastX);
+    if (typeof stroke.lastY === 'number') stroke.lastY = ty(stroke.lastY);
+    if (typeof stroke.thickness === 'number') stroke.thickness = Math.max(1, stroke.thickness * uniform);
+  }
+
+  function drawSelectionOverlay() {
+    const hasMarquee = isSelecting;
+    const hasSelection = selectedStrokeIds.size > 0;
+    if (!hasMarquee && !hasSelection) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = '#4d90fe';
+    ctx.lineWidth = 1 / Math.max(0.001, scale);
+
+    if (hasSelection) {
+      const b = getSelectionBounds();
+      if (b) {
+        ctx.setLineDash([6 / scale, 4 / scale]);
+        ctx.strokeRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY);
+        ctx.setLineDash([]);
+
+        const size = 10 / Math.max(0.001, scale);
+        const half = size / 2;
+        const handles = getSelectionHandles(b);
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#4d90fe';
+        ctx.lineWidth = 1 / Math.max(0.001, scale);
+        for (const h of handles) {
+          ctx.beginPath();
+          ctx.rect(h.x - half, h.y - half, size, size);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+    }
+
+    if (hasMarquee) {
+      const r = normalizeRect(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
+      ctx.setLineDash([4 / scale, 3 / scale]);
+      ctx.strokeRect(r.minX, r.minY, r.maxX - r.minX, r.maxY - r.minY);
+      ctx.setLineDash([]);
+    }
+
+    ctx.restore();
+  }
+
+  function copySelectionToClipboard() {
+    const selected = strokes
+      .filter(s => selectedStrokeIds.has(s.id))
+      .filter(s => s.type !== 'fill' && s.type !== 'moveAction' && s.type !== 'deleteAction');
+
+    if (!selected.length) {
+      selectionClipboard = null;
+      pasteCount = 0;
+      return;
+    }
+
+    selectionClipboard = {
+      strokes: selected.map(s => deepClone(s)),
+      bounds: getSelectionBounds()
+    };
+    pasteCount = 0;
+  }
+
+  function translateStroke(stroke: Stroke, dx: number, dy: number) {
+    if (!stroke) return;
+
+    if (stroke.type === 'fillRegion') {
+      stroke.x += dx;
+      stroke.y += dy;
+      return;
+    }
+
+    if (stroke.type === 'line' || stroke.type === 'rectangle' || stroke.type === 'circle' || stroke.type === 'arrow') {
+      stroke.startX += dx;
+      stroke.startY += dy;
+      stroke.endX += dx;
+      stroke.endY += dy;
+      return;
+    }
+
+    if (stroke.type === 'text') {
+      stroke.x += dx;
+      stroke.y += dy;
+      return;
+    }
+
+    if (typeof stroke.x === 'number') stroke.x += dx;
+    if (typeof stroke.y === 'number') stroke.y += dy;
+    if (typeof stroke.lastX === 'number') stroke.lastX += dx;
+    if (typeof stroke.lastY === 'number') stroke.lastY += dy;
+  }
+
+  function pasteSelectionFromClipboard() {
+    if (!selectionClipboard || !selectionClipboard.strokes || !selectionClipboard.strokes.length) return;
+
+    pasteCount += 1;
+    const offset = 20 * pasteCount;
+
+    const validLayerIds = new Set(layers.map(l => l.id));
+    const pasted = selectionClipboard.strokes.map(s => {
+      const clone = deepClone(s);
+      clone.id = generateId('stroke');
+      if (!clone.layerId || !validLayerIds.has(clone.layerId)) clone.layerId = currentLayerId;
+      translateStroke(clone, offset, offset);
+      return clone;
+    });
+
+    strokes.push(...pasted);
+    redoStack = [];
+    selectedStrokeIds = new Set(pasted.map(s => s.id));
+
+    setActiveTool('select');
+    rebuildAllLayers();
+    redrawCanvas();
+    saveToStorage();
+  }
+
+  function deleteSelectedStrokes() {
+    if (!selectedStrokeIds.size) return;
+
+    const selectedIds = new Set(selectedStrokeIds);
+    const removed: { index: number; stroke: Stroke }[] = [];
+
+    for (let i = 0; i < strokes.length; i++) {
+      const s = strokes[i];
+      if (!s || !s.id) continue;
+      if (s.type === 'moveAction' || s.type === 'deleteAction') continue;
+      if (selectedIds.has(s.id)) {
+        removed.push({ index: i, stroke: deepClone(s) });
+      }
+    }
+
+    if (!removed.length) {
+      selectedStrokeIds.clear();
+      redrawCanvas();
+      return;
+    }
+
+    strokes = strokes.filter(s => !s || !s.id || !selectedIds.has(s.id));
+
+    strokes.push({
+      id: generateId('delete'),
+      type: 'deleteAction',
+      removed
+    });
+
+    redoStack = [];
+    selectedStrokeIds.clear();
+    isSelecting = false;
+    isDraggingSelection = false;
+    dragOriginals.clear();
+
+    saveToStorage();
+    rebuildAllLayers();
+    redrawCanvas();
+  }
+
+  function applyDeleteAction(action: Stroke) {
+    if (!action || action.type !== 'deleteAction' || !Array.isArray(action.removed)) return;
+    const ids = new Set(action.removed.map((r: any) => r && r.stroke && r.stroke.id).filter(Boolean));
+    if (!ids.size) return;
+    strokes = strokes.filter(s => !s || !s.id || !ids.has(s.id));
+  }
+
+  function revertDeleteAction(action: Stroke) {
+    if (!action || action.type !== 'deleteAction' || !Array.isArray(action.removed)) return;
+
+    const sorted = action.removed
+      .filter((r: any) => r && r.stroke)
+      .slice()
+      .sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0));
+
+    for (const item of sorted) {
+      const idx = Math.max(0, Math.min(strokes.length, item.index ?? strokes.length));
+      const restored = deepClone(item.stroke);
+      ensureStrokeId(restored);
+      strokes.splice(idx, 0, restored);
+    }
+  }
+
+  function getStrokeById(id: string) {
+    return strokes.find(s => s && s.id === id);
+  }
+
+  function restoreStrokeState(target: Stroke, snapshot: Stroke) {
+    if (!target || !snapshot) return;
+    Object.keys(target).forEach(k => {
+      delete (target as any)[k];
+    });
+    Object.assign(target, deepClone(snapshot));
+  }
+
+  function hideAllPopups() {
+    thicknessPopup?.classList.remove('show');
+    eraserThicknessPopup?.classList.remove('show');
+    textSizePopup?.classList.remove('show');
+    shapesPopup?.classList.remove('show');
+    layersPopup?.classList.remove('show');
+    pagesPopup?.classList.remove('show');
+  }
+
+  function positionPopup(triggerEl: HTMLElement | null, popupEl: HTMLElement | null) {
+    if (!popupEl || !triggerEl) return;
+    if (!popupEl.classList.contains('show')) return;
+
+    const triggerRect = triggerEl.getBoundingClientRect();
+    const popupRect = popupEl.getBoundingClientRect();
+    const padding = 12;
+    const gap = 10;
+
+    let left = triggerRect.right + gap;
+    if (left + popupRect.width > window.innerWidth - padding) {
+      left = triggerRect.left - popupRect.width - gap;
+    }
+    left = clamp(left, padding, window.innerWidth - popupRect.width - padding);
+
+    const top = clamp(
+      triggerRect.top + triggerRect.height / 2 - popupRect.height / 2,
+      padding,
+      window.innerHeight - popupRect.height - padding
+    );
+
+    popupEl.style.left = left + 'px';
+    popupEl.style.top = top + 'px';
+  }
+
+  function togglePopup(triggerEl: HTMLElement | null, popupEl: HTMLElement | null) {
+    if (!popupEl) return;
+    const willShow = !popupEl.classList.contains('show');
+    hideAllPopups();
+    if (!willShow) return;
+    popupEl.classList.add('show');
+    requestAnimationFrame(() => positionPopup(triggerEl, popupEl));
+  }
+
+  function resizeCanvas() {
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(1, Math.floor(rect.width));
+    const h = Math.max(1, Math.floor(rect.height));
+    if (canvas.width === w && canvas.height === h) {
+      return;
+    }
+
+    canvas.width = w;
+    canvas.height = h;
+    layerCanvases = {};
+    if (layers.length) {
+      rebuildAllLayers();
+    }
+    applyTransform();
+  }
+
+  function requestCanvasResize() {
+    requestAnimationFrame(resizeCanvas);
+  }
+
+  requestCanvasResize();
+  requestAnimationFrame(requestCanvasResize);
+  on(window, 'resize', requestCanvasResize);
+  if (window.visualViewport) {
+    on(window.visualViewport, 'resize', requestCanvasResize);
+  }
+
+  function updateThicknessDot(size: number) {
+    if (!thicknessDot) return;
+    const scaledSize = Math.max(4, Math.min(size * 0.8, 18));
+    thicknessDot.style.width = scaledSize + 'px';
+    thicknessDot.style.height = scaledSize + 'px';
+  }
+
+  function updateEraserThicknessDot(size: number) {
+    if (!eraserThicknessDot) return;
+    const scaledSize = Math.max(4, Math.min(size * 0.6, 20));
+    eraserThicknessDot.style.width = scaledSize + 'px';
+    eraserThicknessDot.style.height = scaledSize + 'px';
+  }
+
+  updateThicknessDot(penThickness);
+  updateEraserThicknessDot(eraserThickness);
+
+  function createLayer(name: string): Layer {
+    return {
+      id: 'layer-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      name: name,
+      visible: true
+    };
+  }
+
+  function createPage(name: string): Page {
+    const firstLayer = createLayer('Layer 1');
+    return {
+      id: 'page-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      name: name,
+      strokes: [],
+      redoStack: [],
+      layers: [firstLayer],
+      currentLayerId: firstLayer.id,
+      scale: 1,
+      panX: 0,
+      panY: 0
+    };
+  }
+
+  function getCurrentPage() {
+    return pages[currentPageIndex];
+  }
+
+  function saveCurrentPageState() {
+    if (!pages.length) return;
+    const page = getCurrentPage();
+    page.strokes = strokes;
+    page.redoStack = redoStack;
+    page.layers = layers;
+    page.currentLayerId = currentLayerId;
+    page.scale = scale;
+    page.panX = panX;
+    page.panY = panY;
+  }
+
+  function loadPageState(index: number) {
+    saveCurrentPageState();
+    currentPageIndex = index;
+    const page = getCurrentPage();
+    strokes = page.strokes;
+    redoStack = page.redoStack;
+    layers = page.layers;
+    currentLayerId = page.currentLayerId;
+    scale = page.scale;
+    panX = page.panX;
+    panY = page.panY;
+
+    layerCanvases = {};
+    isSelecting = false;
+    selectedStrokeIds.clear();
+    rebuildAllLayers();
+    redrawCanvas();
+    renderLayers();
+    renderPages();
+  }
+
+  function getLayerCanvas(layerId: string) {
+    if (!layerCanvases[layerId]) {
+      layerCanvases[layerId] = document.createElement('canvas');
+    }
+    const layerCanvas = layerCanvases[layerId];
+    if (layerCanvas.width !== canvas.width || layerCanvas.height !== canvas.height) {
+      layerCanvas.width = canvas.width;
+      layerCanvas.height = canvas.height;
+    }
+    return layerCanvas;
+  }
+
+  function getLayerContext(layerId: string) {
+    return getLayerCanvas(layerId).getContext('2d')!;
+  }
+
+  function rebuildAllLayers() {
+    layers.forEach(layer => {
+      const lctx = getLayerContext(layer.id);
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+      lctx.clearRect(0, 0, canvas.width, canvas.height);
+    });
+
+    strokes.forEach(stroke => {
+      if (!stroke || stroke.type === 'moveAction' || stroke.type === 'deleteAction') return;
+      if (!stroke.layerId) {
+        stroke.layerId = currentLayerId;
+      }
+      const layerExists = layers.some(l => l.id === stroke.layerId);
+      if (!layerExists && layers.length) {
+        stroke.layerId = layers[0].id;
+      }
+      applyStrokeToLayer(stroke);
+    });
+  }
+
+  function applyFloodFill(context: CanvasRenderingContext2D, startX: number, startY: number, fillColor: string) {
+    const w = context.canvas.width;
+    const h = context.canvas.height;
+    if (startX < 0 || startX >= w || startY < 0 || startY >= h) return;
+
+    const imageData = context.getImageData(0, 0, w, h);
+    const pixels = imageData.data;
+
+    const startPos = (startY * w + startX) * 4;
+    const targetR = pixels[startPos];
+    const targetG = pixels[startPos + 1];
+    const targetB = pixels[startPos + 2];
+    const targetA = pixels[startPos + 3];
+
+    const fillR = parseInt(fillColor.slice(1, 3), 16);
+    const fillG = parseInt(fillColor.slice(3, 5), 16);
+    const fillB = parseInt(fillColor.slice(5, 7), 16);
+
+    const tolerance = 10;
+
+    const matchesTarget = (pos: number) => {
+      const a = pixels[pos + 3];
+      if (targetA === 0) {
+        return a === 0;
+      }
+      if (Math.abs(a - targetA) > tolerance) return false;
+      if (Math.abs(pixels[pos] - targetR) > tolerance) return false;
+      if (Math.abs(pixels[pos + 1] - targetG) > tolerance) return false;
+      if (Math.abs(pixels[pos + 2] - targetB) > tolerance) return false;
+      return true;
+    };
+
+    if (
+      targetA === 255 &&
+      Math.abs(targetR - fillR) <= tolerance &&
+      Math.abs(targetG - fillG) <= tolerance &&
+      Math.abs(targetB - fillB) <= tolerance
+    ) {
+      return;
+    }
+
+    const setFill = (pos: number) => {
+      pixels[pos] = fillR;
+      pixels[pos + 1] = fillG;
+      pixels[pos + 2] = fillB;
+      pixels[pos + 3] = 255;
+    };
+
+    const stack: Array<[number, number]> = [[startX, startY]];
+
+    const pushSpans = (y: number, x1: number, x2: number) => {
+      let x = x1;
+      while (x <= x2) {
+        const pos = (y * w + x) * 4;
+        if (matchesTarget(pos)) {
+          stack.push([x, y]);
+          x += 1;
+          while (x <= x2 && matchesTarget((y * w + x) * 4)) {
+            x += 1;
+          }
+        }
+        x += 1;
+      }
+    };
+
+    while (stack.length) {
+      const [x0, y0] = stack.pop()!;
+      if (x0 < 0 || x0 >= w || y0 < 0 || y0 >= h) continue;
+
+      let left = x0;
+      while (left >= 0 && matchesTarget((y0 * w + left) * 4)) {
+        left -= 1;
+      }
+      left += 1;
+
+      let right = x0;
+      while (right < w && matchesTarget((y0 * w + right) * 4)) {
+        right += 1;
+      }
+      right -= 1;
+
+      for (let x = left; x <= right; x++) {
+        setFill((y0 * w + x) * 4);
+      }
+
+      if (y0 > 0) pushSpans(y0 - 1, left, right);
+      if (y0 < h - 1) pushSpans(y0 + 1, left, right);
+    }
+
+    context.putImageData(imageData, 0, 0);
+  }
+
+  function applyFloodFillRegion(context: CanvasRenderingContext2D, startX: number, startY: number, fillColor: string) {
+    const w = context.canvas.width;
+    const h = context.canvas.height;
+    if (startX < 0 || startX >= w || startY < 0 || startY >= h) return null;
+
+    const imageData = context.getImageData(0, 0, w, h);
+    const pixels = imageData.data;
+
+    const startPos = (startY * w + startX) * 4;
+    const targetR = pixels[startPos];
+    const targetG = pixels[startPos + 1];
+    const targetB = pixels[startPos + 2];
+    const targetA = pixels[startPos + 3];
+
+    const fillR = parseInt(fillColor.slice(1, 3), 16);
+    const fillG = parseInt(fillColor.slice(3, 5), 16);
+    const fillB = parseInt(fillColor.slice(5, 7), 16);
+
+    const tolerance = 10;
+
+    const matchesTarget = (pos: number) => {
+      const a = pixels[pos + 3];
+      if (targetA === 0) {
+        return a === 0;
+      }
+      if (Math.abs(a - targetA) > tolerance) return false;
+      if (Math.abs(pixels[pos] - targetR) > tolerance) return false;
+      if (Math.abs(pixels[pos + 1] - targetG) > tolerance) return false;
+      if (Math.abs(pixels[pos + 2] - targetB) > tolerance) return false;
+      return true;
+    };
+
+    if (
+      targetA === 255 &&
+      Math.abs(targetR - fillR) <= tolerance &&
+      Math.abs(targetG - fillG) <= tolerance &&
+      Math.abs(targetB - fillB) <= tolerance
+    ) {
+      return null;
+    }
+
+    const setFill = (pos: number) => {
+      pixels[pos] = fillR;
+      pixels[pos + 1] = fillG;
+      pixels[pos + 2] = fillB;
+      pixels[pos + 3] = 255;
+    };
+
+    const stack: Array<[number, number]> = [[startX, startY]];
+    const spans: Array<[number, number, number]> = [];
+    let minX = startX;
+    let maxX = startX;
+    let minY = startY;
+    let maxY = startY;
+
+    const pushSpans = (y: number, x1: number, x2: number) => {
+      let x = x1;
+      while (x <= x2) {
+        const pos = (y * w + x) * 4;
+        if (matchesTarget(pos)) {
+          stack.push([x, y]);
+          x += 1;
+          while (x <= x2 && matchesTarget((y * w + x) * 4)) {
+            x += 1;
+          }
+        }
+        x += 1;
+      }
+    };
+
+    while (stack.length) {
+      const [x0, y0] = stack.pop()!;
+      if (x0 < 0 || x0 >= w || y0 < 0 || y0 >= h) continue;
+
+      let left = x0;
+      while (left >= 0 && matchesTarget((y0 * w + left) * 4)) {
+        left -= 1;
+      }
+      left += 1;
+
+      let right = x0;
+      while (right < w && matchesTarget((y0 * w + right) * 4)) {
+        right += 1;
+      }
+      right -= 1;
+
+      for (let x = left; x <= right; x++) {
+        setFill((y0 * w + x) * 4);
+      }
+
+      spans.push([y0, left, right]);
+      minX = Math.min(minX, left);
+      maxX = Math.max(maxX, right);
+      minY = Math.min(minY, y0);
+      maxY = Math.max(maxY, y0);
+
+      if (y0 > 0) pushSpans(y0 - 1, left, right);
+      if (y0 < h - 1) pushSpans(y0 + 1, left, right);
+    }
+
+    if (!spans.length) return null;
+
+    context.putImageData(imageData, 0, 0);
+
+    return {
+      minX,
+      minY,
+      maxX,
+      maxY,
+      spans,
+      targetA
+    };
+  }
+
+  function applyStrokeToLayer(stroke: Stroke) {
+    if (!stroke || stroke.type === 'moveAction' || stroke.type === 'deleteAction') return;
+    const layerId = stroke.layerId || currentLayerId;
+    if (!layerId) return;
+    const lctx = getLayerContext(layerId);
+
+    lctx.save();
+    try {
+      if (stroke.type === 'fill') {
+        const screenX = Math.round(stroke.x * scale + panX);
+        const screenY = Math.round(stroke.y * scale + panY);
+        lctx.setTransform(1, 0, 0, 1, 0, 0);
+
+        const allowTransparent = stroke.allowTransparent === true;
+        const sample = lctx.getImageData(screenX, screenY, 1, 1).data;
+        if (!allowTransparent && sample[3] === 0) return;
+
+        applyFloodFill(lctx, screenX, screenY, stroke.color);
+        return;
+      }
+
+      if (stroke.type === 'fillRegion') {
+        lctx.setTransform(1, 0, 0, 1, 0, 0);
+        lctx.globalCompositeOperation = 'source-over';
+        lctx.fillStyle = stroke.color;
+
+        const screenX = Math.round(stroke.x * scale + panX);
+        const screenY = Math.round(stroke.y * scale + panY);
+        const screenW = Math.max(1, Math.round(stroke.w * scale));
+        const screenH = Math.max(1, Math.round(stroke.h * scale));
+
+        const pw = Math.max(1, stroke.pw || 1);
+        const ph = Math.max(1, stroke.ph || 1);
+        const sx = screenW / pw;
+        const sy = screenH / ph;
+
+        const spans = Array.isArray(stroke.spans) ? stroke.spans : [];
+        for (let i = 0; i + 2 < spans.length; i += 3) {
+          const y0 = spans[i];
+          const x1 = spans[i + 1];
+          const x2 = spans[i + 2];
+
+          const dstY = screenY + Math.floor(y0 * sy);
+          const dstY2 = screenY + Math.floor((y0 + 1) * sy);
+          const dstH = Math.max(1, dstY2 - dstY);
+
+          const dstX1 = screenX + Math.floor(x1 * sx);
+          const dstX2 = screenX + Math.ceil((x2 + 1) * sx) - 1;
+          const dstW = dstX2 - dstX1 + 1;
+          if (dstW <= 0 || dstH <= 0) continue;
+
+          const drawX = clamp(dstX1, 0, lctx.canvas.width);
+          const drawY = clamp(dstY, 0, lctx.canvas.height);
+
+          const skipX = drawX - dstX1;
+          const skipY = drawY - dstY;
+
+          const maxW = lctx.canvas.width - drawX;
+          const maxH = lctx.canvas.height - drawY;
+          const drawW = Math.min(dstW - skipX, maxW);
+          const drawH = Math.min(dstH - skipY, maxH);
+          if (drawW <= 0 || drawH <= 0) continue;
+
+          lctx.fillRect(drawX, drawY, drawW, drawH);
+        }
+        return;
+      }
+
+      lctx.setTransform(scale, 0, 0, scale, panX, panY);
+
+      if (stroke.type === 'line') {
+        lctx.globalCompositeOperation = 'source-over';
+        lctx.strokeStyle = stroke.color;
+        lctx.lineWidth = Math.max(3, stroke.thickness);
+        lctx.lineCap = 'round';
+        lctx.lineJoin = 'round';
+        drawLine(stroke.startX, stroke.startY, stroke.endX, stroke.endY, lctx);
+      } else if (stroke.type === 'rectangle') {
+        lctx.globalCompositeOperation = 'source-over';
+        lctx.strokeStyle = stroke.color;
+        lctx.lineWidth = Math.max(3, stroke.thickness);
+        lctx.lineCap = 'round';
+        lctx.lineJoin = 'round';
+        drawRectangle(stroke.startX, stroke.startY, stroke.endX, stroke.endY, lctx);
+      } else if (stroke.type === 'circle') {
+        lctx.globalCompositeOperation = 'source-over';
+        lctx.strokeStyle = stroke.color;
+        lctx.lineWidth = Math.max(3, stroke.thickness);
+        lctx.lineCap = 'round';
+        lctx.lineJoin = 'round';
+        drawCircle(stroke.startX, stroke.startY, stroke.endX, stroke.endY, lctx);
+      } else if (stroke.type === 'arrow') {
+        lctx.globalCompositeOperation = 'source-over';
+        lctx.strokeStyle = stroke.color;
+        lctx.lineWidth = Math.max(3, stroke.thickness);
+        lctx.lineCap = 'round';
+        lctx.lineJoin = 'round';
+        drawArrow(stroke.startX, stroke.startY, stroke.endX, stroke.endY, lctx);
+      } else if (stroke.type === 'text') {
+        lctx.globalCompositeOperation = 'source-over';
+        lctx.fillStyle = stroke.color;
+        lctx.font = `${stroke.size}px Arial`;
+        lctx.fillText(stroke.text, stroke.x, stroke.y);
+      } else {
+        lctx.lineWidth = stroke.thickness;
+        lctx.lineCap = 'round';
+
+        if (stroke.isEraser) {
+          lctx.globalCompositeOperation = 'destination-out';
+          lctx.globalAlpha = 1;
+        } else {
+          lctx.globalCompositeOperation = 'source-over';
+          lctx.globalAlpha = 1;
+          lctx.strokeStyle = stroke.color;
+        }
+
+        lctx.beginPath();
+        lctx.moveTo(stroke.lastX, stroke.lastY);
+        lctx.lineTo(stroke.x, stroke.y);
+        lctx.stroke();
+      }
+    } finally {
+      lctx.restore();
+    }
+  }
+
+  function renderLayers() {
+    if (!layersList) return;
+    layersList.innerHTML = '';
+
+    layers.forEach((layer, index) => {
+      const row = document.createElement('div');
+      row.className = 'popup-row' + (layer.id === currentLayerId ? ' active' : '');
+      row.addEventListener('click', () => {
+        currentLayerId = layer.id;
+        renderLayers();
+      });
+
+      const left = document.createElement('div');
+      left.className = 'popup-row-left';
+
+      const title = document.createElement('div');
+      title.className = 'popup-row-title';
+      title.textContent = layer.name;
+      left.appendChild(title);
+
+      const right = document.createElement('div');
+      right.className = 'popup-row-right';
+
+      const vis = document.createElement('button');
+      vis.className = 'mini-btn';
+      vis.title = layer.visible ? 'Hide' : 'Show';
+      const eyeOpen = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.25 12s3.5-7.5 9.75-7.5S21.75 12 21.75 12 18.25 19.5 12 19.5 2.25 12 2.25 12Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></svg>';
+      const eyeOff = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M2.25 12s3.5-7.5 9.75-7.5c2.1 0 3.9.6 5.35 1.45" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M21.75 12S18.25 19.5 12 19.5c-2.1 0-3.9-.6-5.35-1.45" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.2 10.2A3 3 0 0 0 13.8 13.8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      vis.innerHTML = layer.visible ? eyeOpen : eyeOff;
+      vis.addEventListener('click', (e) => {
+        e.stopPropagation();
+        layer.visible = !layer.visible;
+        vis.innerHTML = layer.visible ? eyeOpen : eyeOff;
+        redrawCanvas();
+        renderLayers();
+        saveToStorage();
+      });
+
+      const up = document.createElement('button');
+      up.className = 'mini-btn';
+      up.textContent = '↑';
+      up.title = 'Move Up';
+      up.disabled = index === 0;
+      up.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (index === 0) return;
+        const tmp = layers[index - 1];
+        layers[index - 1] = layers[index];
+        layers[index] = tmp;
+        redrawCanvas();
+        renderLayers();
+        saveToStorage();
+      });
+
+      const down = document.createElement('button');
+      down.className = 'mini-btn';
+      down.textContent = '↓';
+      down.title = 'Move Down';
+      down.disabled = index === layers.length - 1;
+      down.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (index === layers.length - 1) return;
+        const tmp = layers[index + 1];
+        layers[index + 1] = layers[index];
+        layers[index] = tmp;
+        redrawCanvas();
+        renderLayers();
+        saveToStorage();
+      });
+
+      const del = document.createElement('button');
+      del.className = 'mini-btn';
+      del.textContent = '×';
+      del.title = 'Delete';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this layer?')) return;
+        const layerId = layer.id;
+        layers = layers.filter(l => l.id !== layerId);
+        strokes = strokes.filter(s => s.layerId !== layerId);
+        delete layerCanvases[layerId];
+        if (!layers.length) {
+          const newLayer = createLayer('Layer 1');
+          layers = [newLayer];
+          currentLayerId = newLayer.id;
+        } else if (currentLayerId === layerId) {
+          currentLayerId = layers[0].id;
+        }
+        rebuildAllLayers();
+        redrawCanvas();
+        renderLayers();
+        saveToStorage();
+      });
+
+      right.appendChild(vis);
+      right.appendChild(up);
+      right.appendChild(down);
+      right.appendChild(del);
+
+      row.appendChild(left);
+      row.appendChild(right);
+      layersList.appendChild(row);
+    });
+  }
+
+  function renderPages() {
+    if (!pagesList) return;
+    pagesList.innerHTML = '';
+
+    pages.forEach((page, index) => {
+      const row = document.createElement('div');
+      row.className = 'popup-row' + (index === currentPageIndex ? ' active' : '');
+      row.addEventListener('click', () => {
+        if (index === currentPageIndex) return;
+        loadPageState(index);
+        pagesPopup?.classList.remove('show');
+      });
+
+      const left = document.createElement('div');
+      left.className = 'popup-row-left';
+
+      const title = document.createElement('div');
+      title.className = 'popup-row-title';
+      title.textContent = page.name;
+      left.appendChild(title);
+
+      const right = document.createElement('div');
+      right.className = 'popup-row-right';
+
+      const del = document.createElement('button');
+      del.className = 'mini-btn';
+      del.textContent = '×';
+      del.title = 'Delete';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!confirm('Delete this canvas?')) return;
+        pages.splice(index, 1);
+        if (currentPageIndex >= pages.length) {
+          currentPageIndex = Math.max(0, pages.length - 1);
+        }
+        if (!pages.length) {
+          pages = [createPage('Canvas 1')];
+          currentPageIndex = 0;
+        }
+        loadPageState(currentPageIndex);
+        saveToStorage();
+      });
+
+      right.appendChild(del);
+      row.appendChild(left);
+      row.appendChild(right);
+      pagesList.appendChild(row);
+    });
+  }
+
+  function setActiveTool(tool: string) {
+    currentTool = tool;
+    document.querySelectorAll('.tool-button').forEach(btn => btn.classList.remove('active'));
+
+    if (tool === 'select') {
+      selectButton?.classList.add('active');
+      isEraser = false;
+      canvas.style.cursor = 'default';
+    } else if (tool === 'pan') {
+      panButton?.classList.add('active');
+      isEraser = false;
+      canvas.style.cursor = 'grab';
+    } else if (tool === 'pen') {
+      penButton?.classList.add('active');
+      isEraser = false;
+      canvas.style.cursor = 'crosshair';
+      if (thicknessSlider) thicknessSlider.value = String(penThickness);
+      if (thicknessValue) thicknessValue.textContent = penThickness + 'px';
+      updateThicknessDot(penThickness);
+    } else if (tool === 'eraser') {
+      eraserButton?.classList.add('active');
+      isEraser = true;
+      canvas.style.cursor = 'crosshair';
+    } else if (tool === 'text') {
+      textButton?.classList.add('active');
+      isEraser = false;
+      canvas.style.cursor = 'text';
+    } else if (tool === 'fill') {
+      fillButton?.classList.add('active');
+      isEraser = false;
+      canvas.style.cursor = 'crosshair';
+    } else if (tool === 'line' || tool === 'rectangle' || tool === 'circle' || tool === 'arrow') {
+      shapesButton?.classList.add('active');
+      isEraser = false;
+      canvas.style.cursor = 'crosshair';
+    }
+
+    if (tool !== 'select') {
+      isSelecting = false;
+      selectedStrokeIds.clear();
+      isDraggingSelection = false;
+      dragOriginals.clear();
+      isResizingSelection = false;
+      resizeHandle = null;
+      resizeBoundsStart = null;
+      resizeAnchor = null;
+      resizeOriginals.clear();
+    }
+  }
+
+  on(selectButton, 'click', () => setActiveTool('select'));
+  on(panButton, 'click', () => setActiveTool('pan'));
+  on(penButton, 'click', () => setActiveTool('pen'));
+  on(eraserButton, 'click', () => setActiveTool('eraser'));
+  on(textButton, 'click', () => setActiveTool('text'));
+  on(fillButton, 'click', () => setActiveTool('fill'));
+
+  on(shapesButton, 'click', (e: Event) => {
+    e.stopPropagation();
+    togglePopup(shapesButton, shapesPopup);
+  });
+
+  on(shapeLineButton, 'click', (e: Event) => {
+    e.stopPropagation();
+    setActiveTool('line');
+    shapesPopup?.classList.remove('show');
+  });
+
+  on(shapeRectangleButton, 'click', (e: Event) => {
+    e.stopPropagation();
+    setActiveTool('rectangle');
+    shapesPopup?.classList.remove('show');
+  });
+
+  on(shapeCircleButton, 'click', (e: Event) => {
+    e.stopPropagation();
+    setActiveTool('circle');
+    shapesPopup?.classList.remove('show');
+  });
+
+  on(shapeArrowButton, 'click', (e: Event) => {
+    e.stopPropagation();
+    setActiveTool('arrow');
+    shapesPopup?.classList.remove('show');
+  });
+
+  on(colorPicker, 'input', (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    penColor = target.value;
+  });
+
+  on(thicknessSlider, 'input', (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    penThickness = parseInt(target.value);
+    if (thicknessValue) thicknessValue.textContent = penThickness + 'px';
+    updateThicknessDot(penThickness);
+  });
+
+  on(eraserThicknessSlider, 'input', (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    eraserThickness = parseInt(target.value);
+    if (eraserThicknessValue) eraserThicknessValue.textContent = eraserThickness + 'px';
+    updateEraserThicknessDot(eraserThickness);
+  });
+
+  on(textSizeSlider, 'input', (e: Event) => {
+    const target = e.target as HTMLInputElement;
+    textSize = parseInt(target.value);
+    if (textSizeValue) textSizeValue.textContent = textSize + 'px';
+  });
+
+  on(thicknessPreview, 'click', (e: Event) => {
+    e.stopPropagation();
+    togglePopup(thicknessPreview, thicknessPopup);
+  });
+
+  on(eraserThicknessPreview, 'click', (e: Event) => {
+    e.stopPropagation();
+    togglePopup(eraserThicknessPreview, eraserThicknessPopup);
+  });
+
+  on(textSizePreview, 'click', (e: Event) => {
+    e.stopPropagation();
+    togglePopup(textSizePreview, textSizePopup);
+  });
+
+  on(layersButton, 'click', (e: Event) => {
+    e.stopPropagation();
+    togglePopup(layersButton, layersPopup);
+    renderLayers();
+  });
+
+  on(pagesButton, 'click', (e: Event) => {
+    e.stopPropagation();
+    togglePopup(pagesButton, pagesPopup);
+    renderPages();
+  });
+
+  on(thicknessPopup, 'click', (e: Event) => {
+    e.stopPropagation();
+  });
+
+  on(eraserThicknessPopup, 'click', (e: Event) => {
+    e.stopPropagation();
+  });
+
+  on(textSizePopup, 'click', (e: Event) => {
+    e.stopPropagation();
+  });
+
+  on(shapesPopup, 'click', (e: Event) => {
+    e.stopPropagation();
+  });
+
+  on(layersPopup, 'click', (e: Event) => {
+    e.stopPropagation();
+  });
+
+  on(pagesPopup, 'click', (e: Event) => {
+    e.stopPropagation();
+  });
+
+  on(document, 'click', () => {
+    hideAllPopups();
+  });
+
+  on(window, 'resize', () => {
+    positionPopup(thicknessPreview, thicknessPopup);
+    positionPopup(eraserThicknessPreview, eraserThicknessPopup);
+    positionPopup(textSizePreview, textSizePopup);
+    positionPopup(shapesButton, shapesPopup);
+    positionPopup(layersButton, layersPopup);
+    positionPopup(pagesButton, pagesPopup);
+  });
+
+  const sidebarScroll = document.getElementById('sidebar-scroll') as HTMLDivElement | null;
+  if (sidebarScroll) {
+    on(sidebarScroll, 'scroll', () => {
+      hideAllPopups();
+    }, { passive: true });
+  }
+
+  on(addLayerButton, 'click', () => {
+    const name = 'Layer ' + (layers.length + 1);
+    const layer = createLayer(name);
+    layers.push(layer);
+    currentLayerId = layer.id;
+    getLayerCanvas(layer.id);
+    renderLayers();
+    redrawCanvas();
+    saveToStorage();
+  });
+
+  on(addPageButton, 'click', () => {
+    const name = 'Canvas ' + (pages.length + 1);
+    saveCurrentPageState();
+    pages.push(createPage(name));
+    saveToStorage();
+    loadPageState(pages.length - 1);
+  });
+
+  on(clearButton, 'click', () => {
+    if (confirm('Are you sure you want to clear the entire canvas?')) {
+      strokes = [];
+      redoStack = [];
+      scale = 1;
+      panX = 0;
+      panY = 0;
+      layerCanvases = {};
+      rebuildAllLayers();
+      saveToStorage();
+      redrawCanvas();
+    }
+  });
+
+  on(undoButton, 'click', () => {
+    undo();
+  });
+
+  on(redoButton, 'click', () => {
+    redo();
+  });
+
+  on(exportButton, 'click', () => {
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = canvas.width;
+    exportCanvas.height = canvas.height;
+    const exportCtx = exportCanvas.getContext('2d');
+    if (!exportCtx) return;
+
+    exportCtx.fillStyle = '#ffffff';
+    exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+    exportCtx.save();
+    layers.slice().reverse().forEach(layer => {
+      if (!layer.visible) return;
+      exportCtx.globalCompositeOperation = 'source-over';
+      exportCtx.drawImage(getLayerCanvas(layer.id), 0, 0);
+    });
+
+    exportCtx.restore();
+
+    exportCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sketchspace-${Date.now()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
+  });
+
+  function undo() {
+    if (strokes.length === 0) return;
+
+    const last = strokes[strokes.length - 1];
+    if (last && last.groupId) {
+      const groupId = last.groupId;
+      const batch: Stroke[] = [];
+      while (strokes.length && strokes[strokes.length - 1] && strokes[strokes.length - 1].groupId === groupId) {
+        batch.push(strokes.pop() as Stroke);
+      }
+      batch.reverse();
+      redoStack.push({ type: 'batch', strokes: batch });
+    } else {
+      const lastStroke = strokes.pop();
+      redoStack.push(lastStroke);
+
+      if (lastStroke && lastStroke.type === 'moveAction' && Array.isArray(lastStroke.moved)) {
+        for (const item of lastStroke.moved) {
+          const target = getStrokeById(item.id);
+          if (!target) continue;
+          restoreStrokeState(target, item.before);
+        }
+      } else if (lastStroke && lastStroke.type === 'deleteAction') {
+        revertDeleteAction(lastStroke);
+      }
+    }
+
+    saveToStorage();
+    rebuildAllLayers();
+    redrawCanvas();
+  }
+
+  function redo() {
+    if (redoStack.length === 0) return;
+
+    const entry = redoStack.pop();
+    if (entry && entry.type === 'batch' && Array.isArray(entry.strokes)) {
+      strokes.push(...entry.strokes);
+    } else {
+      const strokeToRedo = entry;
+      strokes.push(strokeToRedo);
+
+      if (strokeToRedo && strokeToRedo.type === 'moveAction' && Array.isArray(strokeToRedo.moved)) {
+        for (const item of strokeToRedo.moved) {
+          const target = getStrokeById(item.id);
+          if (!target) continue;
+          restoreStrokeState(target, item.after);
+        }
+      } else if (strokeToRedo && strokeToRedo.type === 'deleteAction') {
+        applyDeleteAction(strokeToRedo);
+      }
+    }
+
+    saveToStorage();
+    rebuildAllLayers();
+    redrawCanvas();
+  }
+
+  on(infoButton, 'click', () => {
+    if (infoModal) infoModal.style.display = 'flex';
+  });
+
+  on(closeButton, 'click', () => {
+    if (infoModal) infoModal.style.display = 'none';
+  });
+
+  on(window, 'click', (e: Event) => {
+    if (e.target === infoModal && infoModal) {
+      infoModal.style.display = 'none';
+    }
+  });
+
+  on(document, 'keydown', (e: Event) => {
+    const evt = e as KeyboardEvent;
+    if (textInputOverlay?.style.display === 'block') {
+      return;
+    }
+
+    const isMod = evt.ctrlKey || evt.metaKey;
+
+    if (isMod && (evt.key === 'c' || evt.key === 'C')) {
+      if (selectedStrokeIds.size > 0) {
+        evt.preventDefault();
+        copySelectionToClipboard();
+      }
+      return;
+    }
+
+    if (isMod && (evt.key === 'v' || evt.key === 'V')) {
+      if (selectionClipboard) {
+        evt.preventDefault();
+        pasteSelectionFromClipboard();
+      }
+      return;
+    }
+
+    if (currentTool === 'select' && selectedStrokeIds.size > 0 && (evt.key === 'Backspace' || evt.key === 'Delete')) {
+      evt.preventDefault();
+      deleteSelectedStrokes();
+      return;
+    }
+
+    if (evt.code === 'Space' && !spacePressed) {
+      evt.preventDefault();
+      spacePressed = true;
+      canvas.style.cursor = 'grab';
+      return;
+    }
+
+    if (isMod && (evt.key === 'z' || evt.key === 'Z')) {
+      evt.preventDefault();
+      undo();
+    } else if (isMod && (evt.key === 'y' || evt.key === 'Y')) {
+      evt.preventDefault();
+      redo();
+    } else if (evt.key === 's' || evt.key === 'S') {
+      selectButton?.click();
+    } else if (evt.key === 'p' || evt.key === 'P') {
+      penButton?.click();
+    } else if (evt.key === 'e' || evt.key === 'E') {
+      eraserButton?.click();
+    } else if (evt.key === 't' || evt.key === 'T') {
+      textButton?.click();
+    } else if (evt.key === 'f' || evt.key === 'F') {
+      fillButton?.click();
+    } else if (evt.key === 'l' || evt.key === 'L') {
+      setActiveTool('line');
+    } else if (evt.key === 'r' || evt.key === 'R') {
+      setActiveTool('rectangle');
+    } else if (evt.key === 'o' || evt.key === 'O') {
+      setActiveTool('circle');
+    } else if (evt.key === 'a' || evt.key === 'A') {
+      setActiveTool('arrow');
+    } else if (evt.key === 'c' || evt.key === 'C') {
+      clearButton?.click();
+    }
+  });
+
+  on(document, 'keyup', (e: Event) => {
+    const evt = e as KeyboardEvent;
+    if (evt.code === 'Space') {
+      spacePressed = false;
+      if (!isPanning) {
+        if (currentTool === 'select') {
+          canvas.style.cursor = 'default';
+        } else if (currentTool === 'text') {
+          canvas.style.cursor = 'text';
+        } else {
+          canvas.style.cursor = 'crosshair';
+        }
+      }
+    }
+  });
+
+  on(canvas, 'wheel', (e: Event) => {
+    const evt = e as WheelEvent;
+    evt.preventDefault();
+
+    const mouseX = evt.offsetX;
+    const mouseY = evt.offsetY;
+
+    const direction = evt.deltaY < 0 ? 1 : -1;
+    zoomTo(scale + direction * ZOOM_STEP, mouseX, mouseY);
+  }, { passive: false });
+
+  function applyTransform() {
+    rebuildAllLayers();
+    redrawCanvas();
+  }
+
+  if (zoomInButton) {
+    on(zoomInButton, 'click', () => {
+      zoomTo(scale + ZOOM_STEP, canvas.width / 2, canvas.height / 2);
+    });
+  }
+
+  if (zoomOutButton) {
+    on(zoomOutButton, 'click', () => {
+      zoomTo(scale - ZOOM_STEP, canvas.width / 2, canvas.height / 2);
+    });
+  }
+
+  let textClickX = 0;
+  let textClickY = 0;
+  let pendingTextTap: { x: number; y: number; sx: number; sy: number } | null = null;
+
+  function handleTextInput(x: number, y: number, immediateFocus = false) {
+    if (!textInputOverlay || !textInput) return;
+    textClickX = x;
+    textClickY = y;
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const screenX = x * scale + panX;
+    const screenY = y * scale + panY;
+
+    textInputOverlay.style.left = canvasRect.left + screenX + 'px';
+    textInputOverlay.style.top = canvasRect.top + screenY + 'px';
+    textInputOverlay.style.display = 'block';
+    textInput.style.fontSize = textSize + 'px';
+    textInput.style.color = penColor;
+    textInput.value = '';
+
+    if (immediateFocus) {
+      textInput.focus();
+    }
+    setTimeout(() => textInput.focus(), 0);
+
+    const finishText = () => {
+      const text = textInput.value;
+      if (text.trim()) {
+        const textStroke = {
+          id: generateId('stroke'),
+          type: 'text',
+          x: textClickX,
+          y: textClickY + textSize,
+          text: text,
+          color: penColor,
+          size: textSize,
+          layerId: currentLayerId
+        };
+
+        strokes.push(textStroke);
+        redoStack = [];
+        applyStrokeToLayer(textStroke);
+        saveToStorage();
+        redrawCanvas();
+      }
+      textInputOverlay.style.display = 'none';
+      textInput.onblur = null;
+      textInput.onkeydown = null;
+    };
+
+    textInput.onblur = finishText;
+    textInput.onkeydown = (e: KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finishText();
+      } else if (e.key === 'Escape') {
+        textInputOverlay.style.display = 'none';
+        textInput.onblur = null;
+        textInput.onkeydown = null;
+      }
+    };
+  }
+
+  function floodFill(screenX: number, screenY: number, fillColor: string) {
+    if (!currentLayerId) return;
+    const lctx = getLayerContext(currentLayerId);
+
+    const x = Math.round(screenX);
+    const y = Math.round(screenY);
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    const region = applyFloodFillRegion(lctx, x, y, fillColor);
+    if (!region) return;
+
+    const pw = region.maxX - region.minX + 1;
+    const ph = region.maxY - region.minY + 1;
+    const worldX = (region.minX - panX) / scale;
+    const worldY = (region.minY - panY) / scale;
+    const worldW = pw / scale;
+    const worldH = ph / scale;
+
+    const spans: number[] = [];
+    for (const s of region.spans) {
+      spans.push(s[0] - region.minY, s[1] - region.minX, s[2] - region.minX);
+    }
+
+    const fillStroke = {
+      id: generateId('stroke'),
+      type: 'fillRegion',
+      x: worldX,
+      y: worldY,
+      w: worldW,
+      h: worldH,
+      pw,
+      ph,
+      spans,
+      color: fillColor,
+      layerId: currentLayerId
+    };
+
+    strokes.push(fillStroke);
+    redoStack = [];
+    saveToStorage();
+    redrawCanvas();
+  }
+
+  function startDrawing(e: MouseEvent) {
+    if (spacePressed) {
+      isPanning = true;
+      panStartX = e.clientX - panX;
+      panStartY = e.clientY - panY;
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    if (currentTool === 'pan') {
+      isPanning = true;
+      panStartX = e.clientX - panX;
+      panStartY = e.clientY - panY;
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    const x = (e.offsetX - panX) / scale;
+    const y = (e.offsetY - panY) / scale;
+
+    if (currentTool === 'select') {
+      if (selectedStrokeIds.size > 0) {
+        const b = getSelectionBounds();
+        if (b) {
+          const handle = getHandleHit(b, x, y);
+          if (handle) {
+            isResizingSelection = true;
+            resizeHandle = handle;
+            resizeBoundsStart = { ...b };
+            resizeOriginals = new Map();
+            for (const id of selectedStrokeIds) {
+              const s = getStrokeById(id);
+              if (!s) continue;
+              resizeOriginals.set(id, deepClone(s));
+            }
+
+            if (handle === 'nw') resizeAnchor = { x: b.maxX, y: b.maxY };
+            else if (handle === 'ne') resizeAnchor = { x: b.minX, y: b.maxY };
+            else if (handle === 'sw') resizeAnchor = { x: b.maxX, y: b.minY };
+            else if (handle === 'se') resizeAnchor = { x: b.minX, y: b.minY };
+            else if (handle === 'n') resizeAnchor = { x: (b.minX + b.maxX) / 2, y: b.maxY };
+            else if (handle === 's') resizeAnchor = { x: (b.minX + b.maxX) / 2, y: b.minY };
+            else if (handle === 'w') resizeAnchor = { x: b.maxX, y: (b.minY + b.maxY) / 2 };
+            else if (handle === 'e') resizeAnchor = { x: b.minX, y: (b.minY + b.maxY) / 2 };
+            return;
+          }
+        }
+      }
+
+      if (selectedStrokeIds.size > 0) {
+        const b = getSelectionBounds();
+        if (b && rectContainsPoint(expandRect(b, 4 / Math.max(0.001, scale)), x, y)) {
+          isDraggingSelection = true;
+          dragLastX = x;
+          dragLastY = y;
+          dragOriginals = new Map();
+          for (const id of selectedStrokeIds) {
+            const s = getStrokeById(id);
+            if (!s) continue;
+            dragOriginals.set(id, deepClone(s));
+          }
+          return;
+        }
+      }
+
+      isSelecting = true;
+      selectionStartX = x;
+      selectionStartY = y;
+      selectionEndX = x;
+      selectionEndY = y;
+      redrawCanvas();
+      return;
+    }
+
+    if (currentTool === 'text') {
+      handleTextInput(x, y, false);
+      return;
+    }
+
+    if (currentTool === 'fill') {
+      floodFill(e.offsetX, e.offsetY, penColor);
+      return;
+    }
+
+    drawing = true;
+    lastX = x;
+    lastY = y;
+
+    if (currentTool === 'pen' || currentTool === 'eraser') {
+      currentStrokeGroupId = generateId('group');
+      const tinyX = lastX + 0.01;
+      const tinyY = lastY + 0.01;
+      saveStroke(tinyX, tinyY, lastX, lastY);
+      lastX = tinyX;
+      lastY = tinyY;
+    } else if (currentTool === 'line' || currentTool === 'rectangle' || currentTool === 'circle' || currentTool === 'arrow') {
+      isDrawingShape = true;
+      shapeStartX = x;
+      shapeStartY = y;
+    }
+  }
+
+  function draw(e: MouseEvent) {
+    if (isPanning) {
+      panX = e.clientX - panStartX;
+      panY = e.clientY - panStartY;
+      applyTransform();
+      return;
+    }
+
+    if (currentTool === 'select' && isSelecting) {
+      const x = (e.offsetX - panX) / scale;
+      const y = (e.offsetY - panY) / scale;
+      selectionEndX = x;
+      selectionEndY = y;
+      redrawCanvas();
+      return;
+    }
+
+    if (currentTool === 'select' && isDraggingSelection) {
+      const x = (e.offsetX - panX) / scale;
+      const y = (e.offsetY - panY) / scale;
+      const dx = x - dragLastX;
+      const dy = y - dragLastY;
+      dragLastX = x;
+      dragLastY = y;
+
+      if (dx !== 0 || dy !== 0) {
+        for (const id of selectedStrokeIds) {
+          const s = getStrokeById(id);
+          if (!s) continue;
+          translateStroke(s, dx, dy);
+        }
+        rebuildAllLayers();
+        redrawCanvas();
+      }
+      return;
+    }
+
+    if (currentTool === 'select' && isResizingSelection) {
+      const x = (e.offsetX - panX) / scale;
+      const y = (e.offsetY - panY) / scale;
+      const b = resizeBoundsStart;
+      const anchor = resizeAnchor;
+      if (!b || !anchor) return;
+
+      const minSize = 8 / Math.max(0.001, scale);
+      const ow = Math.max(minSize, b.maxX - b.minX);
+      const oh = Math.max(minSize, b.maxY - b.minY);
+
+      let nx1 = b.minX;
+      let ny1 = b.minY;
+      let nx2 = b.maxX;
+      let ny2 = b.maxY;
+
+      if (resizeHandle === 'nw') { nx1 = x; ny1 = y; }
+      else if (resizeHandle === 'ne') { nx2 = x; ny1 = y; }
+      else if (resizeHandle === 'sw') { nx1 = x; ny2 = y; }
+      else if (resizeHandle === 'se') { nx2 = x; ny2 = y; }
+      else if (resizeHandle === 'n') { ny1 = y; }
+      else if (resizeHandle === 's') { ny2 = y; }
+      else if (resizeHandle === 'w') { nx1 = x; }
+      else if (resizeHandle === 'e') { nx2 = x; }
+
+      const nb = normalizeRect(nx1, ny1, nx2, ny2);
+      const nw = Math.max(minSize, nb.maxX - nb.minX);
+      const nh = Math.max(minSize, nb.maxY - nb.minY);
+
+      const sx = nw / ow;
+      const sy = nh / oh;
+
+      for (const id of selectedStrokeIds) {
+        const target = getStrokeById(id);
+        const snap = resizeOriginals.get(id);
+        if (!target || !snap) continue;
+        restoreStrokeState(target, snap);
+        transformStroke(target, anchor.x, anchor.y, sx, sy);
+      }
+
+      rebuildAllLayers();
+      redrawCanvas();
+      return;
+    }
+
+    if (!drawing) return;
+
+    const x = (e.offsetX - panX) / scale;
+    const y = (e.offsetY - panY) / scale;
+
+    if (currentTool === 'pen' || currentTool === 'eraser') {
+      saveStroke(x, y, lastX, lastY);
+
+      lastX = x;
+      lastY = y;
+    } else if (isDrawingShape) {
+      redrawCanvas();
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = Math.max(3, penThickness);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (currentTool === 'line') {
+        drawLine(shapeStartX, shapeStartY, x, y);
+      } else if (currentTool === 'rectangle') {
+        drawRectangle(shapeStartX, shapeStartY, x, y);
+      } else if (currentTool === 'circle') {
+        drawCircle(shapeStartX, shapeStartY, x, y);
+      } else if (currentTool === 'arrow') {
+        drawArrow(shapeStartX, shapeStartY, x, y);
+      }
+    }
+  }
+
+  function stopDrawing(e: MouseEvent) {
+    if (isPanning) {
+      isPanning = false;
+      if (spacePressed) {
+        canvas.style.cursor = 'grab';
+      } else if (currentTool === 'select') {
+        canvas.style.cursor = 'default';
+      } else if (currentTool === 'pan') {
+        canvas.style.cursor = 'grab';
+      } else if (currentTool === 'text') {
+        canvas.style.cursor = 'text';
+      } else {
+        canvas.style.cursor = 'crosshair';
+      }
+      return;
+    }
+
+    if (currentTool === 'select' && isSelecting) {
+      const x = (e.offsetX - panX) / scale;
+      const y = (e.offsetY - panY) / scale;
+      selectionEndX = x;
+      selectionEndY = y;
+
+      const r = normalizeRect(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
+      const w = r.maxX - r.minX;
+      const h = r.maxY - r.minY;
+
+      selectedStrokeIds.clear();
+
+      const clickThreshold = 3 / Math.max(0.001, scale);
+      if (w < clickThreshold && h < clickThreshold) {
+        for (let i = strokes.length - 1; i >= 0; i--) {
+          const s = strokes[i];
+          ensureStrokeId(s);
+          const b = getStrokeBounds(s);
+          if (!b) continue;
+          if (rectContainsPoint(b, x, y)) {
+            selectedStrokeIds.add(s.id);
+            break;
+          }
+        }
+      } else {
+        for (const s of strokes) {
+          ensureStrokeId(s);
+          const b = getStrokeBounds(s);
+          if (!b) continue;
+          if (rectIntersects(b, r)) selectedStrokeIds.add(s.id);
+        }
+      }
+
+      isSelecting = false;
+      redrawCanvas();
+      return;
+    }
+
+    if (currentTool === 'select' && isDraggingSelection) {
+      const moved: any[] = [];
+      for (const id of selectedStrokeIds) {
+        const before = dragOriginals.get(id);
+        const afterStroke = getStrokeById(id);
+        if (!before || !afterStroke) continue;
+        moved.push({ id, before: deepClone(before), after: deepClone(afterStroke) });
+      }
+
+      if (moved.length) {
+        strokes.push({
+          id: generateId('move'),
+          type: 'moveAction',
+          moved
+        });
+        redoStack = [];
+        saveToStorage();
+      }
+
+      isDraggingSelection = false;
+      dragOriginals.clear();
+      rebuildAllLayers();
+      redrawCanvas();
+      return;
+    }
+
+    if (currentTool === 'select' && isResizingSelection) {
+      const moved: any[] = [];
+      for (const id of selectedStrokeIds) {
+        const before = resizeOriginals.get(id);
+        const afterStroke = getStrokeById(id);
+        if (!before || !afterStroke) continue;
+        moved.push({ id, before: deepClone(before), after: deepClone(afterStroke) });
+      }
+
+      if (moved.length) {
+        strokes.push({
+          id: generateId('move'),
+          type: 'moveAction',
+          moved
+        });
+        redoStack = [];
+        saveToStorage();
+      }
+
+      isResizingSelection = false;
+      resizeHandle = null;
+      resizeBoundsStart = null;
+      resizeAnchor = null;
+      resizeOriginals.clear();
+
+      rebuildAllLayers();
+      redrawCanvas();
+      return;
+    }
+
+    if (!drawing) return;
+
+    if (isDrawingShape) {
+      const x = (e.offsetX - panX) / scale;
+      const y = (e.offsetY - panY) / scale;
+
+      const shape = {
+        id: generateId('stroke'),
+        type: currentTool,
+        startX: shapeStartX,
+        startY: shapeStartY,
+        endX: x,
+        endY: y,
+        color: penColor,
+        thickness: penThickness,
+        layerId: currentLayerId
+      };
+
+      strokes.push(shape);
+      redoStack = [];
+      applyStrokeToLayer(shape);
+      saveToStorage();
+      redrawCanvas();
+      isDrawingShape = false;
+    }
+
+    currentStrokeGroupId = null;
+    drawing = false;
+  }
+
+  function drawLine(x1: number, y1: number, x2: number, y2: number, context: CanvasRenderingContext2D = ctx) {
+    context.beginPath();
+    context.moveTo(x1, y1);
+    context.lineTo(x2, y2);
+    context.stroke();
+  }
+
+  function drawRectangle(x1: number, y1: number, x2: number, y2: number, context: CanvasRenderingContext2D = ctx) {
+    const width = x2 - x1;
+    const height = y2 - y1;
+    context.beginPath();
+    context.rect(x1, y1, width, height);
+    context.stroke();
+  }
+
+  function drawCircle(x1: number, y1: number, x2: number, y2: number, context: CanvasRenderingContext2D = ctx) {
+    const radius = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+    context.beginPath();
+    context.arc(x1, y1, radius, 0, 2 * Math.PI);
+    context.stroke();
+  }
+
+  function drawArrow(x1: number, y1: number, x2: number, y2: number, context: CanvasRenderingContext2D = ctx) {
+    const headLength = 15;
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+
+    context.beginPath();
+    context.moveTo(x1, y1);
+    context.lineTo(x2, y2);
+    context.stroke();
+
+    context.beginPath();
+    context.moveTo(x2, y2);
+    context.lineTo(x2 - headLength * Math.cos(angle - Math.PI / 6), y2 - headLength * Math.sin(angle - Math.PI / 6));
+    context.moveTo(x2, y2);
+    context.lineTo(x2 - headLength * Math.cos(angle + Math.PI / 6), y2 - headLength * Math.sin(angle + Math.PI / 6));
+    context.stroke();
+  }
+
+  on(canvas, 'mousedown', startDrawing);
+  on(canvas, 'mousemove', draw);
+  on(canvas, 'mouseup', stopDrawing);
+  on(canvas, 'mouseout', stopDrawing);
+
+  function saveStroke(x: number, y: number, lastX: number, lastY: number) {
+    const thickness = isEraser ? eraserThickness : penThickness;
+    const stroke = {
+      id: generateId('stroke'),
+      type: currentTool,
+      x: x,
+      y: y,
+      lastX: lastX,
+      lastY: lastY,
+      groupId: currentStrokeGroupId,
+      color: penColor,
+      thickness: thickness,
+      isEraser: isEraser,
+      layerId: currentLayerId
+    };
+    strokes.push(stroke);
+    redoStack = [];
+    applyStrokeToLayer(stroke);
+    saveToStorage();
+    redrawCanvas();
+  }
+
+  function saveToStorage() {
+    try {
+      saveCurrentPageState();
+      const data = {
+        pages: pages,
+        currentPageIndex: currentPageIndex
+      };
+      localStorage.setItem('sketchspace-pages', JSON.stringify(data));
+    } catch (e) {
+      console.error('Storage error:', e);
+    }
+  }
+
+  function loadFromStorage() {
+    try {
+      const savedPages = localStorage.getItem('sketchspace-pages');
+      if (savedPages) {
+        const data = JSON.parse(savedPages);
+        pages = data.pages || [];
+        currentPageIndex = data.currentPageIndex || 0;
+      } else {
+        const savedStrokes = localStorage.getItem('sketchspace-strokes');
+        if (savedStrokes) {
+          const migratedStrokes = JSON.parse(savedStrokes);
+          const page = createPage('Canvas 1');
+          page.strokes = migratedStrokes;
+          pages = [page];
+          currentPageIndex = 0;
+        }
+      }
+
+      if (!pages.length) {
+        pages = [createPage('Canvas 1')];
+        currentPageIndex = 0;
+      }
+
+      const page = getCurrentPage();
+      strokes = page.strokes;
+      redoStack = page.redoStack;
+      layers = page.layers;
+      currentLayerId = page.currentLayerId;
+      scale = 1;
+      panX = 0;
+      panY = 0;
+
+      page.scale = scale;
+      page.panX = panX;
+      page.panY = panY;
+
+      if (!layers.length) {
+        const firstLayer = createLayer('Layer 1');
+        layers = [firstLayer];
+        currentLayerId = firstLayer.id;
+      }
+
+      strokes.forEach(s => {
+        if (!s.layerId) s.layerId = currentLayerId;
+        ensureStrokeId(s);
+      });
+
+      layerCanvases = {};
+      rebuildAllLayers();
+      redrawCanvas();
+      renderLayers();
+      renderPages();
+
+      updateZoomUI();
+
+      saveToStorage();
+    } catch (e) {
+      console.error('Load error:', e);
+    }
+  }
+
+  function redrawCanvas() {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    layers.slice().reverse().forEach(layer => {
+      if (!layer.visible) return;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.drawImage(getLayerCanvas(layer.id), 0, 0);
+    });
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.setTransform(scale, 0, 0, scale, panX, panY);
+
+    drawSelectionOverlay();
+  }
+
+  function getTouchPos(e: TouchEvent) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.touches[0].clientX - rect.left,
+      y: e.touches[0].clientY - rect.top
+    };
+  }
+
+  on(canvas, 'touchstart', (e: TouchEvent) => {
+    const pos = getTouchPos(e);
+
+    if (currentTool === 'pan') {
+      e.preventDefault();
+      pendingTextTap = null;
+      isPanning = true;
+      const t = e.touches[0];
+      panStartX = t.clientX - panX;
+      panStartY = t.clientY - panY;
+      return;
+    }
+
+    const x = (pos.x - panX) / scale;
+    const y = (pos.y - panY) / scale;
+
+    if (currentTool === 'select') {
+      if (selectedStrokeIds.size > 0) {
+        const b = getSelectionBounds();
+        if (b) {
+          const handle = getHandleHit(b, x, y);
+          if (handle) {
+            isResizingSelection = true;
+            resizeHandle = handle;
+            resizeBoundsStart = { ...b };
+            resizeOriginals = new Map();
+            for (const id of selectedStrokeIds) {
+              const s = getStrokeById(id);
+              if (!s) continue;
+              resizeOriginals.set(id, deepClone(s));
+            }
+
+            if (handle === 'nw') resizeAnchor = { x: b.maxX, y: b.maxY };
+            else if (handle === 'ne') resizeAnchor = { x: b.minX, y: b.maxY };
+            else if (handle === 'sw') resizeAnchor = { x: b.maxX, y: b.minY };
+            else if (handle === 'se') resizeAnchor = { x: b.minX, y: b.minY };
+            else if (handle === 'n') resizeAnchor = { x: (b.minX + b.maxX) / 2, y: b.maxY };
+            else if (handle === 's') resizeAnchor = { x: (b.minX + b.maxX) / 2, y: b.minY };
+            else if (handle === 'w') resizeAnchor = { x: b.maxX, y: (b.minY + b.maxY) / 2 };
+            else if (handle === 'e') resizeAnchor = { x: b.minX, y: (b.minY + b.maxY) / 2 };
+            return;
+          }
+        }
+      }
+
+      if (selectedStrokeIds.size > 0) {
+        const b = getSelectionBounds();
+        if (b && rectContainsPoint(expandRect(b, 6 / Math.max(0.001, scale)), x, y)) {
+          isDraggingSelection = true;
+          dragLastX = x;
+          dragLastY = y;
+          dragOriginals = new Map();
+          for (const id of selectedStrokeIds) {
+            const s = getStrokeById(id);
+            if (!s) continue;
+            dragOriginals.set(id, deepClone(s));
+          }
+          return;
+        }
+      }
+
+      isSelecting = true;
+      selectionStartX = x;
+      selectionStartY = y;
+      selectionEndX = x;
+      selectionEndY = y;
+      redrawCanvas();
+      return;
+    }
+
+    if (currentTool === 'text') {
+      e.preventDefault();
+      pendingTextTap = { x, y, sx: pos.x, sy: pos.y };
+      return;
+    }
+
+    e.preventDefault();
+
+    if (currentTool === 'fill') {
+      floodFill(pos.x, pos.y, penColor);
+      return;
+    }
+
+    drawing = true;
+    lastX = x;
+    lastY = y;
+
+    if (currentTool === 'pen' || currentTool === 'eraser') {
+      currentStrokeGroupId = generateId('group');
+      const tinyX = lastX + 0.01;
+      const tinyY = lastY + 0.01;
+      saveStroke(tinyX, tinyY, lastX, lastY);
+      lastX = tinyX;
+      lastY = tinyY;
+    }
+  }, { passive: false });
+
+  on(canvas, 'touchmove', (e: TouchEvent) => {
+    e.preventDefault();
+
+    if (currentTool === 'pan' && isPanning) {
+      const t = e.touches[0];
+      panX = t.clientX - panStartX;
+      panY = t.clientY - panStartY;
+      applyTransform();
+      return;
+    }
+
+    if (currentTool === 'text' && pendingTextTap) {
+      const pos = getTouchPos(e);
+      const dx = pos.x - pendingTextTap.sx;
+      const dy = pos.y - pendingTextTap.sy;
+      if (Math.hypot(dx, dy) > 6) pendingTextTap = null;
+      return;
+    }
+
+    if (currentTool === 'select' && isSelecting) {
+      const pos = getTouchPos(e);
+      const x = (pos.x - panX) / scale;
+      const y = (pos.y - panY) / scale;
+      selectionEndX = x;
+      selectionEndY = y;
+      redrawCanvas();
+      return;
+    }
+
+    if (currentTool === 'select' && isDraggingSelection) {
+      const pos = getTouchPos(e);
+      const x = (pos.x - panX) / scale;
+      const y = (pos.y - panY) / scale;
+      const dx = x - dragLastX;
+      const dy = y - dragLastY;
+      dragLastX = x;
+      dragLastY = y;
+
+      if (dx !== 0 || dy !== 0) {
+        for (const id of selectedStrokeIds) {
+          const s = getStrokeById(id);
+          if (!s) continue;
+          translateStroke(s, dx, dy);
+        }
+        rebuildAllLayers();
+        redrawCanvas();
+      }
+      return;
+    }
+
+    if (currentTool === 'select' && isResizingSelection) {
+      const pos = getTouchPos(e);
+      const x = (pos.x - panX) / scale;
+      const y = (pos.y - panY) / scale;
+      const b = resizeBoundsStart;
+      const anchor = resizeAnchor;
+      if (!b || !anchor) return;
+
+      const minSize = 8 / Math.max(0.001, scale);
+      const ow = Math.max(minSize, b.maxX - b.minX);
+      const oh = Math.max(minSize, b.maxY - b.minY);
+
+      let nx1 = b.minX;
+      let ny1 = b.minY;
+      let nx2 = b.maxX;
+      let ny2 = b.maxY;
+
+      if (resizeHandle === 'nw') { nx1 = x; ny1 = y; }
+      else if (resizeHandle === 'ne') { nx2 = x; ny1 = y; }
+      else if (resizeHandle === 'sw') { nx1 = x; ny2 = y; }
+      else if (resizeHandle === 'se') { nx2 = x; ny2 = y; }
+      else if (resizeHandle === 'n') { ny1 = y; }
+      else if (resizeHandle === 's') { ny2 = y; }
+      else if (resizeHandle === 'w') { nx1 = x; }
+      else if (resizeHandle === 'e') { nx2 = x; }
+
+      const nb = normalizeRect(nx1, ny1, nx2, ny2);
+      const nw = Math.max(minSize, nb.maxX - nb.minX);
+      const nh = Math.max(minSize, nb.maxY - nb.minY);
+
+      const sx = nw / ow;
+      const sy = nh / oh;
+
+      for (const id of selectedStrokeIds) {
+        const target = getStrokeById(id);
+        const snap = resizeOriginals.get(id);
+        if (!target || !snap) continue;
+        restoreStrokeState(target, snap);
+        transformStroke(target, anchor.x, anchor.y, sx, sy);
+      }
+
+      rebuildAllLayers();
+      redrawCanvas();
+      return;
+    }
+
+    if (!drawing) return;
+
+    const pos = getTouchPos(e);
+    const x = (pos.x - panX) / scale;
+    const y = (pos.y - panY) / scale;
+
+    if (currentTool === 'pen' || currentTool === 'eraser') {
+      saveStroke(x, y, lastX, lastY);
+      lastX = x;
+      lastY = y;
+    } else if (currentTool === 'line' || currentTool === 'rectangle' || currentTool === 'circle' || currentTool === 'arrow') {
+      if (!isDrawingShape) {
+        isDrawingShape = true;
+        shapeStartX = lastX;
+        shapeStartY = lastY;
+      }
+
+      redrawCanvas();
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = Math.max(3, penThickness);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (currentTool === 'line') {
+        drawLine(shapeStartX, shapeStartY, x, y);
+      } else if (currentTool === 'rectangle') {
+        drawRectangle(shapeStartX, shapeStartY, x, y);
+      } else if (currentTool === 'circle') {
+        drawCircle(shapeStartX, shapeStartY, x, y);
+      } else if (currentTool === 'arrow') {
+        drawArrow(shapeStartX, shapeStartY, x, y);
+      }
+
+      lastX = x;
+      lastY = y;
+    }
+  }, { passive: false });
+
+  on(canvas, 'touchend', () => {
+    if (currentTool === 'pan' && isPanning) {
+      isPanning = false;
+      return;
+    }
+
+    if (currentTool === 'text' && pendingTextTap) {
+      handleTextInput(pendingTextTap.x, pendingTextTap.y, true);
+      pendingTextTap = null;
+      return;
+    }
+
+    if (currentTool === 'select' && isSelecting) {
+      const r = normalizeRect(selectionStartX, selectionStartY, selectionEndX, selectionEndY);
+      const w = r.maxX - r.minX;
+      const h = r.maxY - r.minY;
+      selectedStrokeIds.clear();
+
+      const clickThreshold = 3 / Math.max(0.001, scale);
+      if (w < clickThreshold && h < clickThreshold) {
+        const x = selectionEndX;
+        const y = selectionEndY;
+        for (let i = strokes.length - 1; i >= 0; i--) {
+          const s = strokes[i];
+          ensureStrokeId(s);
+          const b = getStrokeBounds(s);
+          if (!b) continue;
+          if (rectContainsPoint(b, x, y)) {
+            selectedStrokeIds.add(s.id);
+            break;
+          }
+        }
+      } else {
+        for (const s of strokes) {
+          ensureStrokeId(s);
+          const b = getStrokeBounds(s);
+          if (!b) continue;
+          if (rectIntersects(b, r)) selectedStrokeIds.add(s.id);
+        }
+      }
+
+      isSelecting = false;
+      redrawCanvas();
+      return;
+    }
+
+    if (currentTool === 'select' && isDraggingSelection) {
+      const moved: any[] = [];
+      for (const id of selectedStrokeIds) {
+        const before = dragOriginals.get(id);
+        const afterStroke = getStrokeById(id);
+        if (!before || !afterStroke) continue;
+        moved.push({ id, before: deepClone(before), after: deepClone(afterStroke) });
+      }
+
+      if (moved.length) {
+        strokes.push({
+          id: generateId('move'),
+          type: 'moveAction',
+          moved
+        });
+        redoStack = [];
+        saveToStorage();
+      }
+
+      isDraggingSelection = false;
+      dragOriginals.clear();
+      rebuildAllLayers();
+      redrawCanvas();
+      return;
+    }
+
+    if (currentTool === 'select' && isResizingSelection) {
+      const moved: any[] = [];
+      for (const id of selectedStrokeIds) {
+        const before = resizeOriginals.get(id);
+        const afterStroke = getStrokeById(id);
+        if (!before || !afterStroke) continue;
+        moved.push({ id, before: deepClone(before), after: deepClone(afterStroke) });
+      }
+
+      if (moved.length) {
+        strokes.push({
+          id: generateId('move'),
+          type: 'moveAction',
+          moved
+        });
+        redoStack = [];
+        saveToStorage();
+      }
+
+      isResizingSelection = false;
+      resizeHandle = null;
+      resizeBoundsStart = null;
+      resizeAnchor = null;
+      resizeOriginals.clear();
+
+      rebuildAllLayers();
+      redrawCanvas();
+      return;
+    }
+
+    if (isDrawingShape) {
+      const shape = {
+        id: generateId('stroke'),
+        type: currentTool,
+        startX: shapeStartX,
+        startY: shapeStartY,
+        endX: lastX,
+        endY: lastY,
+        color: penColor,
+        thickness: penThickness,
+        layerId: currentLayerId
+      };
+
+      strokes.push(shape);
+      redoStack = [];
+      applyStrokeToLayer(shape);
+      saveToStorage();
+      isDrawingShape = false;
+      redrawCanvas();
+    }
+
+    currentStrokeGroupId = null;
+    drawing = false;
+  });
+
+  loadFromStorage();
+
+  return () => {
+    cleanup.forEach(fn => fn());
+  };
+}

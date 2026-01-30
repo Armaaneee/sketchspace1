@@ -28,7 +28,7 @@ SketchSpace is a browser-based whiteboard with drawing, shapes, text, layers, pa
 - Export the current canvas to PNG with a white background.
 
 ## How it works
-- All data is persisted in localStorage, so layers, pages, and strokes are restored on reload.
+- All data is persisted in `localStorage`, so layers, pages, and strokes are restored on reload.
 - The renderer uses per-layer offscreen canvases and redraws the visible stack for fast updates.
 - Selection operations (move/resize) are recorded so undo/redo stays consistent.
 
